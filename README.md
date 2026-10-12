@@ -11,12 +11,16 @@ levels, monsters, items, quests, combat rules and save files.
 > shared as-is. Expect rough edges. See [Known issues](#known-issues-and-limitations).
 
 <p align="center">
-  <img src="docs/vr/town.png" width="49%" alt="Tristram in first person">
-  <img src="docs/vr/cathedral.png" width="49%" alt="The cathedral, level 1">
+  <img src="docs/vr/town.png" width="49%" alt="Tristram at night, outside the inn">
+  <img src="docs/vr/church.png" width="49%" alt="The cathedral above Tristram">
 </p>
 <p align="center">
-  <img src="docs/vr/catacombs.png" width="49%" alt="The catacombs">
-  <img src="docs/vr/caves.png" width="49%" alt="The caves">
+  <img src="docs/vr/cathedral.png" width="49%" alt="A skeleton in the cathedral">
+  <img src="docs/vr/catacombs.png" width="49%" alt="A pack of monsters in the catacombs">
+</p>
+<p align="center">
+  <img src="docs/vr/caves.png" width="49%" alt="Horned demons in the caves">
+  <img src="docs/vr/hell.png" width="49%" alt="A knight in hell">
 </p>
 
 <sub>Screenshots are the left-eye image, taken straight from the build in this repository.</sub>
