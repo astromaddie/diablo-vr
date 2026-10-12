@@ -475,3 +475,8 @@ uwp-project/Assets/ui_art
 /tmp/
 /compile_commands.json
 /tools/tmp
+
+# VR: local output
+/vr.log
+/screenshots/
+vr-view.bmp

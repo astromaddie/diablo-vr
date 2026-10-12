@@ -1050,6 +1050,52 @@ endif()
 
 add_devilutionx_object_library(libdevilutionx ${libdevilutionx_SRCS})
 target_include_directories(libdevilutionx PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
+
+if(DEVILUTIONX_VR)
+  include(FetchContent)
+  FetchContent_Declare(OpenXR
+    URL https://github.com/KhronosGroup/OpenXR-SDK/archive/refs/tags/release-1.1.43.tar.gz
+  )
+  set(DYNAMIC_LOADER OFF)
+  set(BUILD_TESTS OFF)
+  FetchContent_MakeAvailable(OpenXR)
+  # The loader ignores XR_RUNTIME_JSON in elevated processes, because a lower-privileged
+  # parent could have planted it. vr.cpp sets that variable itself, in-process, only to
+  # runtimes registered under HKLM, and discards an inherited value when elevated, so the
+  # check only gets in the way: without this the game cannot reach the headset's runtime
+  # when it is started as administrator.
+  set(_openxr_platform_utils "${openxr_SOURCE_DIR}/src/common/platform_utils.hpp")
+  file(READ "${_openxr_platform_utils}" _openxr_platform_utils_text)
+  string(REPLACE "if (IsHighIntegrityLevel()) {" "if (false) {" _openxr_platform_utils_patched "${_openxr_platform_utils_text}")
+  if(NOT _openxr_platform_utils_patched STREQUAL _openxr_platform_utils_text)
+    file(WRITE "${_openxr_platform_utils}" "${_openxr_platform_utils_patched}")
+  endif()
+  target_sources(libdevilutionx PRIVATE
+    platform/vr/vr.cpp
+    platform/vr/xr_session.cpp
+    platform/vr/xr_input.cpp
+    platform/vr/xr_frame.cpp
+    platform/vr/render/gpu.cpp
+    platform/vr/render/shaders.cpp
+    platform/vr/render/renderer.cpp
+    platform/vr/render/mesh.cpp
+    platform/vr/render/gltf.cpp
+    platform/vr/render/models.cpp
+    platform/vr/render/carved.cpp
+    platform/vr/render/sprites.cpp
+    platform/vr/render/palette.cpp
+    platform/vr/render/level.cpp
+    platform/vr/render/actors.cpp
+    platform/vr/render/particles.cpp
+    platform/vr/render/feedback.cpp
+    platform/vr/render/debug_panel.cpp
+    platform/vr/render/world.cpp
+    platform/vr/debug/mirror.cpp
+    platform/vr/debug/offscreen.cpp
+    platform/vr/debug/profile.cpp)
+  target_compile_definitions(libdevilutionx PUBLIC DEVILUTIONX_VR)
+  target_link_libraries(libdevilutionx PUBLIC OpenXR::openxr_loader d3d11 dxgi d3dcompiler)
+endif()
 target_link_dependencies(libdevilutionx PUBLIC
   DevilutionX::SDL
   libsmackerdec

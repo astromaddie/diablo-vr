@@ -24,6 +24,8 @@
 
 namespace devilution {
 
+void (*OnClxSpritesLoaded)(const char *path, ClxSpriteListOrSheet sprites) = nullptr;
+
 std::expected<OwnedClxSpriteListOrSheet, std::string> LoadCelListOrSheetWithStatus(const char *pszName, PointerOrValue<uint16_t> widthOrWidths)
 {
 	char path[MaxMpqPathSize];
@@ -36,7 +38,10 @@ std::expected<OwnedClxSpriteListOrSheet, std::string> LoadCelListOrSheetWithStat
 #ifdef DEBUG_CEL_TO_CL2_SIZE
 	std::cout << path;
 #endif
-	return CelToClx(data.get(), size, widthOrWidths);
+	OwnedClxSpriteListOrSheet sprites = CelToClx(data.get(), size, widthOrWidths);
+	if (OnClxSpritesLoaded != nullptr)
+		OnClxSpritesLoaded(path, ClxSpriteListOrSheet { sprites });
+	return sprites;
 #endif
 }
 

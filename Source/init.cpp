@@ -5,6 +5,10 @@
  */
 #include "init.hpp"
 
+#ifdef DEVILUTIONX_VR
+#include "platform/vr/vr.h"
+#endif
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -153,6 +157,10 @@ void MainWndProc(const SDL_Event &event)
 #else
 	case SDL_WINDOWEVENT_HIDDEN:
 	case SDL_WINDOWEVENT_MINIMIZED:
+#endif
+#ifdef DEVILUTIONX_VR
+		// The desktop window is only a mirror while the headset is worn.
+		if (VrEnabled) break;
 #endif
 		gbActive = false;
 		break;

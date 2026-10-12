@@ -107,6 +107,9 @@
 #include "track.h"
 #include "utils/console.h"
 #include "utils/display.h"
+#ifdef DEVILUTIONX_VR
+#include "platform/vr/vr.h"
+#endif
 #include "utils/format.hpp"
 #include "utils/is_of.hpp"
 #include "utils/language.h"
@@ -1023,6 +1026,9 @@ extern "C" void SdlLogToFile(void *userdata, int /*category*/, SDL_LogPriority p
 	PrintHelpOption("--lang", _(/* TRANSLATORS: Commandline Option */ "Specify the language code (e.g. en or pt_BR)"));
 	PrintHelpOption("-n", _(/* TRANSLATORS: Commandline Option */ "Skip startup videos"));
 	PrintHelpOption("-f", _(/* TRANSLATORS: Commandline Option */ "Display frames per second"));
+#ifdef DEVILUTIONX_VR
+	PrintHelpOption("--vr", "Play in a VR headset (OpenXR)");
+#endif
 	PrintHelpOption("--verbose", _(/* TRANSLATORS: Commandline Option */ "Enable verbose logging"));
 #if SDL_VERSION_ATLEAST(2, 0, 0)
 	PrintHelpOption("--log-to-file <path>", _(/* TRANSLATORS: Commandline Option */ "Log to a file instead of stderr"));
@@ -1157,6 +1163,13 @@ void DiabloParseFlags(int argc, char **argv)
 			forceHellfire = true;
 		} else if (arg == "--vanilla") {
 			gbVanilla = true;
+#ifdef DEVILUTIONX_VR
+		} else if (arg == "--vr") {
+			VrEnabled = true;
+		} else if (arg == "--vr-bench" && i + 1 < argc) {
+			VrEnabled = true;
+			VrBenchLevel = SDL_atoi(argv[++i]);
+#endif
 		} else if (arg == "--verbose") {
 			SDL_SetLogPriorities(SDL_LOG_PRIORITY_VERBOSE);
 #if SDL_VERSION_ATLEAST(2, 0, 0)

@@ -74,5 +74,7 @@ void interface_msg_pump();
 void IncProgress(uint32_t steps = 1);
 void CompleteProgress();
 void ShowProgress(interface_mode uMsg);
+/** True while a level is being loaded (possibly on another thread), i.e. level data must not be read. */
+bool IsLoadingLevel();
 
 } // namespace devilution

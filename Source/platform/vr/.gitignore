@@ -1,0 +1,2 @@
+# The repository ignores Debug/ build directories; this one is source.
+!debug/

@@ -36,6 +36,10 @@
 #include "controls/touch/renderers.h"
 #endif
 
+#ifdef DEVILUTIONX_VR
+#include "platform/vr/vr.h"
+#endif
+
 #ifdef __3DS__
 #include <3ds.h>
 #endif
@@ -100,6 +104,10 @@ void LimitFrameRate()
 {
 	if (*GetOptions().Graphics.frameRateControl != FrameRateControl::CPUSleep)
 		return;
+#ifdef DEVILUTIONX_VR
+	if (VrSessionRunning())
+		return; // The headset paces frames.
+#endif
 	static uint32_t frameDeadline;
 	const uint32_t tc = SDL_GetTicks() * 1000;
 	uint32_t v = 0;
@@ -131,6 +139,9 @@ Surface GlobalBackBuffer()
 
 void dx_cleanup()
 {
+#ifdef DEVILUTIONX_VR
+	VrShutdown();
+#endif
 #ifndef USE_SDL1
 	if (ghMainWnd != nullptr)
 		SDL_HideWindow(ghMainWnd);
@@ -291,6 +302,10 @@ void RenderPresent()
 
 	SDL_Surface *surface = GetOutputSurface();
 
+#ifdef DEVILUTIONX_VR
+	VrPresent(surface);
+#endif
+
 	if (!gbActive) {
 #ifdef __EMSCRIPTEN__
 		// Just yield to browser when inactive instead of blocking
@@ -311,7 +326,15 @@ void RenderPresent()
 #else
 		if (SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255) <= -1) ErrSdl();
 		if (SDL_RenderClear(renderer) <= -1) ErrSdl();
-		if (SDL_UpdateTexture(texture.get(), nullptr, surface->pixels, surface->pitch) <= -1) ErrSdl();
+		const void *pixels = surface->pixels;
+		int pitch = surface->pitch;
+#ifdef DEVILUTIONX_VR
+		if (const void *mirror = VrMirrorPixels(surface, pitch); mirror != nullptr)
+			pixels = mirror;
+		else
+			pitch = surface->pitch;
+#endif
+		if (SDL_UpdateTexture(texture.get(), nullptr, pixels, pitch) <= -1) ErrSdl();
 		if (SDL_RenderCopy(renderer, texture.get(), nullptr, nullptr) <= -1) ErrSdl();
 #endif
 

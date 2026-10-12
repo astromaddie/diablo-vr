@@ -68,6 +68,11 @@
 #include "qol/xpbar.h"
 #include "stores.h"
 #include "towners.h"
+#ifdef DEVILUTIONX_VR
+#include <cstring>
+
+#include "platform/vr/vr.h"
+#endif
 #include "utils/attributes.h"
 #include "utils/display.h"
 #include "utils/is_of.hpp"
@@ -1317,6 +1322,13 @@ void DrawView(const Surface &out, Point startPosition)
 #endif
 	Displacement offset = {};
 	CalcFirstTilePosition(startPosition, offset);
+#ifdef DEVILUTIONX_VR
+	// The headset shows the world in 3D; the 2D frame only carries panels, text and the automap.
+	if (VrShowsWorld()) {
+		for (int y = 0; y < gnViewportHeight; y++)
+			memset(out.at(0, y), 0, out.w());
+	} else
+#endif
 	DrawGame(out, startPosition, offset);
 	if (AutomapActive) {
 		DrawAutomap(out.subregionY(0, gnViewportHeight));

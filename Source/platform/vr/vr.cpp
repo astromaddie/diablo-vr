@@ -1,0 +1,460 @@
+/**
+ * @file vr.cpp
+ *
+ * OpenXR presentation: the per-frame entry point called from the game's present.
+ *
+ * Menus and videos: the finished game frame is copied into an OpenXR quad layer that
+ * is anchored in the room. In a game the level is drawn in 3D (render/) and the quad
+ * only carries panels and the HUD strip. Session: xr_session.cpp; input: xr_input.cpp.
+ */
+#include "platform/vr/vr_internal.h"
+
+#include "platform/vr/debug/profile.h"
+
+#include <algorithm>
+#include <cassert>
+#include <cmath>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+
+#include "automap.h"
+#include "control/control.hpp"
+#include "cursor.h"
+#include "diablo.h"
+#include "engine/point.hpp"
+#include "engine/render/scrollrt.h"
+#include "game_mode.hpp"
+#include "gmenu.h"
+#include "help.h"
+#include "interfac.h"
+#include "inv.h"
+#include "levels/dun_tile_data.hpp"
+#include "levels/tile_properties.hpp"
+#include "minitext.h"
+#include "msg.h"
+#include "options.h"
+#include "panels/quest_log.hpp"
+#include "platform/vr/render/world.h"
+#include "player.h"
+#include "qol/stash.h"
+#include "quests.h"
+#include "stores.h"
+#include "utils/display.h"
+#include "utils/log.hpp"
+#include "utils/ui_fwd.h"
+
+namespace devilution {
+
+bool VrEnabled;
+int VrBenchLevel = -1;
+
+namespace vr {
+
+XrPosef screenPose;
+bool screenPlaced;
+/** Whether the 3D world is shown this frame (in a game, as opposed to menus and videos). */
+bool world3d;
+/** Current width of the 2D quad in meters. */
+float quadWidth = ScreenWidth;
+/** Snap-turn angle about the vertical axis, radians, counter-clockwise seen from above. */
+float turnYaw;
+/** World position of the tracking space origin: the player's feet. */
+float worldOrigin[3];
+/** Where the head was (tracking space) when the view was last centred: that spot is the character's position. */
+XrVector3f headAnchor;
+/** Set when the head's current spot should become the character's position (start of a level, re-centre). */
+bool anchorPending = true;
+/** Whether the 2D frame is shown this frame. In the 3D world that is only while a panel or menu is open. */
+bool quadVisible = true;
+/** In the 3D world: true while a panel/menu needs the whole 2D frame, false while only the HUD strip is shown. */
+bool uiMode = true;
+/** The part of the 2D frame the quad shows, in pixels. */
+SDL_Rect quadRect;
+XrPosef extraPose;
+float extraWidth;
+SDL_Rect extraRect;
+SDL_Rect clearBlack;
+/** SDL tick after which the next headset connection attempt may start. */
+Uint32 nextAttempt;
+
+/** Puts the 2D frame upright in front of wherever the player is currently looking. */
+enum class Held : uint8_t {
+	None,
+	Satchel,
+	Tome,
+	Parchment,
+};
+
+/**
+ * A panel taken out on its own in the world becomes a thing: the inventory a satchel at the hip
+ * (its 10 x 4 backpack; the equipment in front of the chest), the spellbook a tome on the left
+ * hand, the automap a parchment in the left hand. With anything else open they are the plain panel.
+ */
+Held HeldPanel()
+{
+	if (!world3d || !uiMode)
+		return Held::None;
+	if (CharFlag || QuestLogIsOpen || qtextflag || HelpFlag || ChatFlag || IsStashOpen || IsPlayerInStore() || gmenu_is_active()
+	    || PauseMode != 0 || MyPlayerIsDead || SpellSelectFlag)
+		return Held::None;
+	const int open = (invflag ? 1 : 0) + (SpellbookFlag ? 1 : 0) + (AutomapActive ? 1 : 0);
+	if (open != 1)
+		return Held::None;
+	return invflag ? Held::Satchel : (SpellbookFlag ? Held::Tome : Held::Parchment);
+}
+
+Held held = Held::None;
+/** The part of the frame the held panel shows. */
+SDL_Rect heldRect;
+
+/** Turns `forward` (tracking space, any length) into a yaw-only orientation looking along it, tilted back by `tilt`. */
+XrQuaternionf Facing(float dx, float dz, float tilt)
+{
+	const float yaw = std::atan2(dx, dz);
+	return Multiply({ 0, std::sin(yaw / 2), 0, std::cos(yaw / 2) }, { std::sin(tilt / 2), 0, 0, std::cos(tilt / 2) });
+}
+
+/** Places a held panel for this frame (it moves with the body or the hand). False when it cannot be placed. */
+bool PlaceHeld(XrTime time, const XrPosef &head)
+{
+	const XrVector3f forward = Rotate(head.orientation, { 0, 0, -1 });
+	const float yaw = std::atan2(-forward.x, -forward.z);
+	const float fx = -std::sin(yaw);
+	const float fz = -std::cos(yaw);
+	extraWidth = 0;
+	clearBlack = {};
+	if (held == Held::Satchel) {
+		// The backpack grid (inv.cpp InvRect: 10 x 4 cells of 29 pixels from (17, 222) in the panel).
+		const Rectangle &panel = GetRightPanel();
+		heldRect = { panel.position.x + 17, panel.position.y + 222, 290, 116 };
+		// At the right hip, its opening turned up towards the eyes.
+		screenPose.position = { head.position.x + fx * 0.12F - fz * 0.22F, head.position.y - 0.75F, head.position.z + fz * 0.12F + fx * 0.22F };
+		screenPose.orientation = Facing(head.position.x - screenPose.position.x, head.position.z - screenPose.position.z, -1.0F);
+		quadWidth = 0.3F;
+		// The equipment (the panel above the grid) in front of the chest.
+		extraRect = { panel.position.x, panel.position.y, panel.size.width, 210 };
+		extraPose.position = { head.position.x + fx * 0.42F, head.position.y - 0.35F, head.position.z + fz * 0.42F };
+		extraPose.orientation = Facing(-fx, -fz, -0.35F);
+		extraWidth = 0.32F;
+		return true;
+	}
+	XrPosef hand;
+	if (!Locate(aimSpace[Left], time, hand))
+		return false;
+	const float tx = head.position.x - hand.position.x;
+	const float tz = head.position.z - hand.position.z;
+	if (held == Held::Tome) {
+		const Rectangle &panel = GetRightPanel();
+		heldRect = { panel.position.x, panel.position.y, panel.size.width, panel.size.height };
+		// Open on the left palm, leaning back towards the eyes.
+		screenPose.position = { hand.position.x, hand.position.y + 0.12F, hand.position.z };
+		screenPose.orientation = Facing(tx, tz, -0.55F);
+		quadWidth = 0.26F;
+		return true;
+	}
+	// The automap over the whole view, black shown as the parchment.
+	heldRect = { 0, 0, gnScreenWidth, gnViewportHeight };
+	clearBlack = heldRect;
+	screenPose.position = { hand.position.x, hand.position.y + 0.16F, hand.position.z };
+	screenPose.orientation = Facing(tx, tz, -0.3F);
+	quadWidth = 0.5F;
+	return true;
+}
+
+void PlaceScreen(XrTime time)
+{
+	XrPosef head;
+	if (!Locate(viewSpace, time, head))
+		return;
+	if (held != Held::None) {
+		screenPlaced = PlaceHeld(time, head);
+		if (screenPlaced)
+			return;
+	}
+	extraWidth = 0;
+	clearBlack = {};
+	const XrVector3f forward = Rotate(head.orientation, { 0, 0, -1 });
+	const float yaw = std::atan2(-forward.x, -forward.z);
+	const XrQuaternionf yawOnly { 0, std::sin(yaw / 2), 0, std::cos(yaw / 2) };
+	// Three placements: the big screen for menus, a mid-size one for panels and dialogs in
+	// a game, and otherwise just the HUD strip (orbs, belt, buttons) low in front, leaning back.
+	const bool hud = world3d && !uiMode;
+	// Talking or trading: the text and the shop stand beside the townsperson, turned to the player.
+	float speaker[3];
+	if (world3d && uiMode && (qtextflag || IsPlayerInStore()) && VrWorldSpeaker(speaker)) {
+		// World -> tracking space (the inverse of ToWorld).
+		const float dx = speaker[0] - worldOrigin[0];
+		const float dz = speaker[2] - worldOrigin[2];
+		const float c = std::cos(-turnYaw);
+		const float s = std::sin(-turnYaw);
+		XrVector3f local { c * dx + s * dz + headAnchor.x, speaker[1] - worldOrigin[1], -s * dx + c * dz + headAnchor.z };
+		// Beside them, a little towards the player, at arm's length to the right of the speaker as seen.
+		const float tx = head.position.x - local.x;
+		const float tz = head.position.z - local.z;
+		const float away = std::sqrt(tx * tx + tz * tz);
+		if (away > 0.3F) {
+			const float nx = tx / away;
+			const float nz = tz / away;
+			local.x += nx * 0.4F + nz * 0.75F;
+			local.z += nz * 0.4F - nx * 0.75F;
+			const float faceYaw = std::atan2(head.position.x - local.x, head.position.z - local.z);
+			screenPose.orientation = { 0, std::sin(faceYaw / 2), 0, std::cos(faceYaw / 2) };
+			screenPose.position = local;
+			quadWidth = PanelWidth * 0.8F;
+			screenPlaced = true;
+			return;
+		}
+	}
+	const float distance = hud ? 0.55F : (world3d ? PanelDistance : ScreenDistance);
+	const float drop = hud ? 0.6F : (world3d ? 0.2F : 0.1F);
+	const float tilt = hud ? -0.9F : 0;
+	quadWidth = hud ? HudWidth : (world3d ? PanelWidth : ScreenWidth);
+	screenPose.orientation = Multiply(yawOnly, { std::sin(tilt / 2), 0, 0, std::cos(tilt / 2) });
+	screenPose.position = {
+		head.position.x - std::sin(yaw) * distance,
+		head.position.y - drop,
+		head.position.z - std::cos(yaw) * distance,
+	};
+	if (anchorPending)
+		headAnchor = head.position;
+	anchorPending = false;
+	screenPlaced = true;
+}
+
+/** Anything that needs the 2D frame in view: panels, dialogs, shops, menus, the automap. */
+bool UiOpen()
+{
+	return invflag || CharFlag || SpellbookFlag || SpellSelectFlag || QuestLogIsOpen || qtextflag || HelpFlag || DropGoldFlag
+	    || ChatFlag || IsStashOpen || AutomapActive || IsPlayerInStore() || gmenu_is_active() || PauseMode != 0 || MyPlayerIsDead;
+}
+
+} // namespace vr
+
+using namespace vr;
+
+bool VrSessionRunning()
+{
+	return sessionRunning;
+}
+
+bool VrShowsWorld()
+{
+	return sessionRunning && world3d;
+}
+
+void VrPresent(SDL_Surface *surface)
+{
+	if (!VrEnabled || state == State::Failed)
+		return;
+
+	// Debug aid: taps Return until a game is running, so the 3D view can be tested unattended.
+	static const bool autostart = SDL_getenv("DEVILUTIONX_VR_AUTOSTART") != nullptr || VrBenchLevel >= 0;
+	if (autostart && !gbRunGame) {
+		static Uint32 nextTap;
+		static bool returnDown;
+		if (SDL_TICKS_PASSED(SDL_GetTicks(), nextTap)) {
+			SetKey(returnDown, !returnDown, SDLK_RETURN);
+			nextTap = SDL_GetTicks() + 600;
+		}
+	}
+
+	// SDL_getenv returns a buffer that later calls reuse, hence the copy.
+	static const std::string offscreenDirectory = SDL_getenv("DEVILUTIONX_VR_OFFSCREEN") != nullptr ? SDL_getenv("DEVILUTIONX_VR_OFFSCREEN") : "";
+	if (VrBenchLevel >= 0) {
+		DebugBench(VrBenchLevel, offscreenDirectory.c_str());
+		return;
+	}
+	if (!offscreenDirectory.empty()) {
+		DebugOffscreen(offscreenDirectory.c_str());
+		return;
+	}
+
+	if (state == State::Uninitialized) {
+		if (!SDL_TICKS_PASSED(SDL_GetTicks(), nextAttempt))
+			return;
+		Cleanup();
+		SelfCheck();
+		SelectRuntime();
+		// Runtimes may block for a long time while creating the session (SteamVR
+		// waits for its current scene app), so the game keeps running on the
+		// desktop window in the meantime.
+		initResult = -1;
+		state = State::Initializing;
+		SDL_DetachThread(SDL_CreateThread(
+		    [](void *) -> int {
+			    initResult = Init() ? 1 : 0;
+			    return 0;
+		    },
+		    "vr-init", nullptr));
+		return;
+	}
+	if (state == State::Initializing) {
+		const int result = initResult;
+		if (result < 0)
+			return;
+		if (result == 0 || !InitVirtualPad()) {
+			static bool logged;
+			if (!logged)
+				LogError("VR: no headset session yet, staying on the desktop window and retrying");
+			logged = true;
+			runtimeIndex++;
+			nextAttempt = SDL_GetTicks() + 2000;
+			state = State::Uninitialized;
+			return;
+		}
+		state = State::Ready;
+	}
+
+	PollEvents();
+	if (!sessionRunning)
+		return;
+
+	XrFrameState frameState { XR_TYPE_FRAME_STATE };
+	const auto lost = [](XrResult result) { return result == XR_ERROR_SESSION_LOST || result == XR_ERROR_INSTANCE_LOST; };
+	XrResult frameResult = xrWaitFrame(session, nullptr, &frameState);
+	if (XR_SUCCEEDED(frameResult))
+		frameResult = xrBeginFrame(session, nullptr);
+	if (XR_FAILED(frameResult)) {
+		if (lost(frameResult))
+			SessionLost("frame call failed");
+		return;
+	}
+	ProfileBeginFrame();
+	// Once per session: later the runtime stretches the period whenever the game misses frames.
+	static Uint32 periodLoggedFor;
+	if (periodLoggedFor != sessionStartTick) {
+		periodLoggedFor = sessionStartTick;
+		const auto period = static_cast<double>(frameState.predictedDisplayPeriod);
+		LogInfo("VR: display period {:.2f} ms ({:.0f} Hz)", period / 1e6, 1e9 / period);
+	}
+
+	// In a game the world is drawn in 3D and the 2D frame shrinks to a panel; menus and videos get the big screen.
+	const bool showWorld = VrWorldAvailable();
+	if (showWorld != world3d) {
+		world3d = showWorld;
+		mirrorReady = false;
+		screenPlaced = false;
+		anchorPending = true;
+		freeValid = false;
+	}
+	// In first person the 2D frame only comes up, in front of the current gaze, while it has something to show.
+	// In first person the whole 2D frame only comes up while it has something to show;
+	// otherwise the quad is just the HUD strip.
+	const bool ui = !world3d || UiOpen();
+	if (ui != uiMode)
+		screenPlaced = false;
+	uiMode = ui;
+	quadVisible = true;
+	const Held nowHeld = HeldPanel();
+	if (nowHeld != held)
+		screenPlaced = false;
+	held = nowHeld;
+	// A held panel moves with the body or the hand: placed every frame.
+	if (!screenPlaced || held != Held::None)
+		PlaceScreen(frameState.predictedDisplayTime);
+
+	XrCompositionLayerQuad quad { XR_TYPE_COMPOSITION_LAYER_QUAD };
+	XrCompositionLayerProjection projection { XR_TYPE_COMPOSITION_LAYER_PROJECTION };
+	XrCompositionLayerProjectionView projectionViews[2];
+	XrCompositionLayerQuad extra { XR_TYPE_COMPOSITION_LAYER_QUAD };
+	const XrCompositionLayerBaseHeader *layers[3];
+	uint32_t layerCount = 0;
+	if (frameState.shouldRender && screenPlaced && surface != nullptr && UploadFrame(surface)) {
+		quad.space = localSpace;
+		quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+		quad.subImage.swapchain = swapchain;
+		quadRect = { 0, 0, swapchainWidth, swapchainHeight };
+		if (held != Held::None) {
+			SDL_Rect clipped;
+			if (SDL_IntersectRect(&heldRect, &quadRect, &clipped) == SDL_TRUE)
+				quadRect = clipped;
+		} else if (!uiMode) {
+			const Rectangle &panel = GetMainPanel();
+			const SDL_Rect panelRect { panel.position.x, panel.position.y, panel.size.width, panel.size.height };
+			SDL_Rect clipped;
+			if (SDL_IntersectRect(&panelRect, &quadRect, &clipped) == SDL_TRUE)
+				quadRect = clipped;
+		}
+		quad.subImage.imageRect.offset = { quadRect.x, quadRect.y };
+		quad.subImage.imageRect.extent = { quadRect.w, quadRect.h };
+		quad.pose = screenPose;
+		quad.size = { quadWidth, quadWidth * static_cast<float>(quadRect.h) / static_cast<float>(quadRect.w) };
+		if (held == Held::Parchment)
+			quad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT | XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
+		// What holds the panel is drawn by the world, where the quad is.
+		VrHeldPanel holder {};
+		if (held != Held::None) {
+			holder.kind = static_cast<int>(held);
+			ToWorld(screenPose, holder.position, holder.orientation);
+			holder.width = quad.size.width;
+			holder.height = quad.size.height;
+		}
+		VrWorldSetHeldPanel(holder);
+		if (world3d)
+			SyncFreePosition();
+		UpdateInput(frameState.predictedDisplayTime, quad.size.height);
+		if (world3d && RenderWorld(frameState.predictedDisplayTime, projectionViews)) {
+			projection.space = localSpace;
+			projection.viewCount = 2;
+			projection.views = projectionViews;
+			layers[layerCount++] = reinterpret_cast<XrCompositionLayerBaseHeader *>(&projection);
+		}
+		if (quadVisible)
+			layers[layerCount++] = reinterpret_cast<XrCompositionLayerBaseHeader *>(&quad);
+		if (quadVisible && extraWidth > 0 && extraRect.w > 0 && layerCount < 3) {
+			extra = quad;
+			extra.layerFlags = 0;
+			extra.subImage.imageRect.offset = { extraRect.x, extraRect.y };
+			extra.subImage.imageRect.extent = { extraRect.w, extraRect.h };
+			extra.pose = extraPose;
+			extra.size = { extraWidth, extraWidth * static_cast<float>(extraRect.h) / static_cast<float>(extraRect.w) };
+			layers[layerCount++] = reinterpret_cast<XrCompositionLayerBaseHeader *>(&extra);
+		}
+	}
+
+	ProfileEndFrame();
+	XrFrameEndInfo endInfo { XR_TYPE_FRAME_END_INFO };
+	endInfo.displayTime = frameState.predictedDisplayTime;
+	endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+	endInfo.layerCount = layerCount;
+	endInfo.layers = layers;
+	const XrResult result = xrEndFrame(session, &endInfo);
+	static XrResult lastResult = XR_SUCCESS;
+	if (result != lastResult) {
+		LogInfo("VR: xrEndFrame -> {} ({} layer(s), {}x{})", static_cast<int>(result), layerCount, swapchainWidth, swapchainHeight);
+		lastResult = result;
+	}
+	if (lost(result)) {
+		SessionLost("xrEndFrame failed");
+		return;
+	}
+	// Debug aid (DEVILUTIONX_VR_DEBUG_RESTART=<seconds>): ends the session that long after it
+	// started, first by asking the runtime to exit, the second time as if it had been lost.
+	static const float restartAfter = Knob("DEVILUTIONX_VR_DEBUG_RESTART", 0);
+	static int restarts;
+	if (restartAfter > 0 && restarts < 2 && static_cast<float>(SDL_GetTicks() - sessionStartTick) > restartAfter * 1000) {
+		sessionStartTick = SDL_GetTicks();
+		if (restarts++ == 0) {
+			LogInfo("VR: debug restart: xrRequestExitSession");
+			xrRequestExitSession(session);
+		} else {
+			SessionLost("debug restart");
+		}
+	}
+	static bool firstFrameLogged;
+	if (layerCount >= 1 && !firstFrameLogged) {
+		LogInfo("VR: first frame submitted ({}x{})", swapchainWidth, swapchainHeight);
+		firstFrameLogged = true;
+	}
+}
+
+void VrShutdown()
+{
+	// A runtime call may still be blocked on the init thread; the process is exiting anyway.
+	if (state != State::Initializing)
+		Cleanup();
+	state = State::Failed;
+}
+
+} // namespace devilution

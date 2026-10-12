@@ -641,6 +641,11 @@ void CompleteProgress()
 	}
 }
 
+bool IsLoadingLevel()
+{
+	return IsProgress;
+}
+
 void ShowProgress(interface_mode uMsg)
 {
 	IsProgress = true;

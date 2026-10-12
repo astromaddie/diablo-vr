@@ -1,5 +1,7 @@
 #include "engine/load_cl2.hpp"
 
+#include "engine/load_cel.hpp"
+
 #include <cstdint>
 #include <expected>
 #include <memory>
@@ -27,7 +29,10 @@ std::expected<OwnedClxSpriteListOrSheet, std::string> LoadCl2ListOrSheetWithStat
 #else
 	size_t size;
 	ASSIGN_OR_RETURN(std::unique_ptr<uint8_t[]> data, LoadFileInMemWithStatus<uint8_t>(path, &size));
-	return Cl2ToClx(std::move(data), size, widthOrWidths);
+	OwnedClxSpriteListOrSheet sprites = Cl2ToClx(std::move(data), size, widthOrWidths);
+	if (OnClxSpritesLoaded != nullptr)
+		OnClxSpritesLoaded(path, ClxSpriteListOrSheet { sprites });
+	return sprites;
 #endif
 }
 

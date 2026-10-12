@@ -16,6 +16,12 @@
 
 namespace devilution {
 
+/**
+ * Called, when set, with every CEL or CL2 file loaded by path (the path includes the extension).
+ * The VR renderer uses it to tell which file a sprite came from.
+ */
+extern void (*OnClxSpritesLoaded)(const char *path, ClxSpriteListOrSheet sprites);
+
 std::expected<OwnedClxSpriteListOrSheet, std::string> LoadCelListOrSheetWithStatus(const char *pszName, PointerOrValue<uint16_t> widthOrWidths);
 
 OwnedClxSpriteListOrSheet LoadCelListOrSheet(const char *pszName, PointerOrValue<uint16_t> widthOrWidths);
