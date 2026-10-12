@@ -34,7 +34,7 @@ cmake --build build --config Release --parallel
 if errorlevel 1 exit /b 1
 
 rem The game looks for its own assets (fonts, UI art, data tables) beside the executable.
-xcopy /e /i /y /q buildssets build\Releasessets >nul
+xcopy /e /i /y /q build\assets build\Release\assets >nul
 if errorlevel 1 exit /b 1
 
 echo.
