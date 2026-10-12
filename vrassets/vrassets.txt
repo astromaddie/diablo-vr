@@ -1,0 +1,3 @@
+Marker: the VR renderer finds this folder by this file.
+carve/   models built from the game's own pictures: objects, items, doors, tile-set props, town
+models/  town buildings (glTF)
