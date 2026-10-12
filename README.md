@@ -22,7 +22,7 @@ levels, monsters, items, quests, combat rules and save files.
 <sub>Screenshots are the left-eye image, taken straight from the build in this repository.</sub>
 
 - **Videos and updates:** [youtube.com/@tombo2811](https://www.youtube.com/@tombo2811)
-- **Contact:** [tomahawk280111@gmail.com](mailto:tomahawk280111@gmail.com)
+- **Contact:** [tsullivan2811@gmail.com](mailto:tsullivan2811@gmail.com)
 
 ---
 
