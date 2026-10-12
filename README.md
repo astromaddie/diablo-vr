@@ -514,7 +514,7 @@ This project is free and will stay free.
 
 ## Contact
 
-- **Email:** [tomahawk280111@gmail.com](mailto:tomahawk280111@gmail.com)
+- **Email:** [tsullivan2811@gmail.com](mailto:tsullivan2811@gmail.com)
 - **YouTube:** [youtube.com/@tombo2811](https://www.youtube.com/@tombo2811)
 
 Bug reports are welcome through the repository's [Issues](../../issues) page. Please attach `vr.log`
