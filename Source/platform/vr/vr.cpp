@@ -341,6 +341,12 @@ void VrPresent(SDL_Surface *surface)
 
 	// In a game the world is drawn in 3D and the 2D frame shrinks to a panel; menus and videos get the big screen.
 	const bool showWorld = VrWorldAvailable();
+	// Debug aid: with the autostart, DEVILUTIONX_VR_DEBUG_LEVEL=<n> goes on to dungeon level n
+	// a few seconds into the game, as it does for the offscreen renderer.
+	static const int debugLevel = static_cast<int>(Knob("DEVILUTIONX_VR_DEBUG_LEVEL", 0));
+	static int worldFrames;
+	if (autostart && debugLevel != 0 && showWorld && ++worldFrames == 200)
+		EnterLevel(debugLevel);
 	if (showWorld != world3d) {
 		world3d = showWorld;
 		LogVerbose("VR: showing {}", world3d ? "the world" : "the screen");

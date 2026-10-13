@@ -265,6 +265,10 @@ float4 VsMask(float2 position : POSITION) : SV_Position
 #ifndef WALL_SHADOW_STEPS
 #define WALL_SHADOW_STEPS 16
 #endif
+// Filtered comparisons a pixel makes against the sun's shadow map: 9, 4 or 1 (DEVILUTIONX_VR_SUN_SHADOW_TAPS).
+#ifndef SUN_SHADOW_TAPS
+#define SUN_SHADOW_TAPS 9
+#endif
 
 float Noise(float2 pixel)
 {
@@ -298,12 +302,23 @@ float SunShadow(float3 world)
 	float2 uv = clip.xy * float2(0.5, -0.5) + 0.5;
 	if (any(uv < 0) || any(uv > 1))
 		return 1;
+#if SUN_SHADOW_TAPS >= 9
 	float sum = 0;
 	for (int y = -1; y <= 1; y++) {
 		for (int x = -1; x <= 1; x++)
 			sum += shadowMap.SampleCmpLevelZero(shadowSampler, float3(uv + float2(x, y) * sunDirection.w, 0), clip.z);
 	}
 	return sum / 9;
+#elif SUN_SHADOW_TAPS >= 4
+	// Each comparison is filtered over two texels a side already: four of them half a texel
+	// out cover three texels across, where the nine cover four.
+	float sum = 0;
+	for (int i = 0; i < 4; i++)
+		sum += shadowMap.SampleCmpLevelZero(shadowSampler, float3(uv + (float2(i & 1, i >> 1) - 0.5) * sunDirection.w, 0), clip.z);
+	return sum / 4;
+#else
+	return shadowMap.SampleCmpLevelZero(shadowSampler, float3(uv, 0), clip.z);
+#endif
 }
 
 /**

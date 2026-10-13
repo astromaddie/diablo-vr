@@ -148,7 +148,6 @@ const float WalkSpeed = Knob("DEVILUTIONX_VR_WALK_SPEED", 2.5F);
 const float TownPace = Knob("DEVILUTIONX_VR_TOWN_PACE", 1.5F);
 bool gliding;
 float vignetteNow;
-Uint32 lastInputTick;
 
 XrAction CreateAction(const char *name, XrActionType type, bool perHand)
 {
@@ -804,6 +803,13 @@ void ButcherShortcut()
 
 void UpdateInput(XrTime time, float screenHeight)
 {
+	// The step from one frame to the next, from the times the frames are shown at. The game's
+	// own clock counts whole milliseconds, which at 72 frames a second makes every step 13 or
+	// 14 of them, and walking and turning shake by that much.
+	static XrTime lastTime;
+	const float frameStep = std::clamp(static_cast<float>(time - lastTime) * 1e-9F, 0.F, 0.05F);
+	lastTime = time;
+
 	ButcherShortcut();
 	XrActiveActionSet activeSet { actionSet, XR_NULL_PATH };
 	XrActionsSyncInfo syncInfo { XR_TYPE_ACTIONS_SYNC_INFO };
@@ -1081,10 +1087,7 @@ void UpdateInput(XrTime time, float screenHeight)
 			const float goX = speedbookOpen ? 0 : fx * leftStick.y - fz * leftStick.x;
 			const float goZ = speedbookOpen ? 0 : fz * leftStick.y + fx * leftStick.x;
 			if (FreeMovement && !gbIsMultiplayer) {
-				static Uint32 lastGlide;
-				const Uint32 glideNow = SDL_GetTicks();
-				gliding = Glide(goX, goZ, std::clamp(static_cast<float>(glideNow - lastGlide) / 1000.F, 0.F, 0.05F));
-				lastGlide = glideNow;
+				gliding = Glide(goX, goZ, frameStep);
 			} else {
 				Walk(goX, goZ);
 			}
@@ -1099,9 +1102,7 @@ void UpdateInput(XrTime time, float screenHeight)
 	bool hotspellModifier = rightStick.y < -0.7F;
 	bool menuNavigator = rightStick.y > 0.7F;
 	if (world3d) {
-		const Uint32 now = SDL_GetTicks();
-		const float dt = std::clamp(static_cast<float>(now - lastInputTick) / 1000.F, 0.F, 0.05F);
-		lastInputTick = now;
+		const float dt = frameStep;
 		bool smoothTurning = false;
 		if (SmoothTurn) {
 			if (std::fabs(rightStick.x) > 0.25F) {

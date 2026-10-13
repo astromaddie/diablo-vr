@@ -70,6 +70,15 @@ const int Samples = std::clamp(static_cast<int>(Knob("DEVILUTIONX_VR_MSAA", 4)),
 const int WallShadowSteps = std::clamp(static_cast<int>(Knob("DEVILUTIONX_VR_WALL_SHADOW_STEPS", 16)), 0, 64);
 /** Tiles between those samples, so near lights cost less. 0: always all of them. */
 const float WallShadowSpacing = Knob("DEVILUTIONX_VR_WALL_SHADOW_SPACING", 0);
+/**
+ * 1: what is solid is drawn nearest first, the held things before the level, so the depth test
+ * saves shading what ends up hidden. 0: in the order the scene lists it. The picture is the same.
+ */
+const bool NearestFirst = Knob("DEVILUTIONX_VR_NEAREST_FIRST", 1) != 0;
+/** 0: no bloom, and none of its passes. */
+const bool Bloom = Knob("DEVILUTIONX_VR_BLOOM", 1) != 0;
+/** Filtered comparisons a pixel makes against the sun's shadow map: 9, 4 or 1. */
+const int SunShadowTaps = static_cast<int>(Knob("DEVILUTIONX_VR_SUN_SHADOW_TAPS", 9));
 const int Anisotropy = std::clamp(static_cast<int>(Knob("DEVILUTIONX_VR_ANISOTROPY", 8)), 1, 16);
 
 ComPtr<ID3D11VertexShader> vsCarved, vsMesh, vsMeshShadow, vsSprite, vsParticle, vsFullscreen, vsPanel, vsMask;
@@ -85,6 +94,8 @@ DynamicBuffer carvedInstanceBuffer, frameBuffer, drawBuffer, meshInstanceBuffer,
 bool layered;
 /** This frame's level has no materials, floor map or grit, so surfaces are drawn by the shader that looks none of them up. */
 bool plainSurfaces;
+/** Where this frame is seen from, for drawing nearest first. */
+Vec3 viewerPosition;
 int targetViews;
 RenderStats stats;
 FrameConstants frame;
@@ -95,6 +106,8 @@ struct Batch {
 	const Mesh *mesh;
 	uint32_t first;
 	uint32_t count;
+	/** Squared distance from the viewer to the nearest of its instances. */
+	float nearest;
 };
 std::vector<uint32_t> order;
 std::vector<MeshInstance> instances;
@@ -122,6 +135,7 @@ bool CompileShaders()
 	if (Samples == 1)
 		source += "#define SINGLE_SAMPLE 1\n";
 	source += "#define WALL_SHADOW_STEPS " + std::to_string(WallShadowSteps) + "\n";
+	source += "#define SUN_SHADOW_TAPS " + std::to_string(SunShadowTaps) + "\n";
 	if (WallShadowSpacing > 0)
 		source += "#define WALL_SHADOW_SPACING " + std::to_string(WallShadowSpacing) + "\n";
 	bool fromFile = false;
@@ -263,6 +277,9 @@ void EnsureTargets(int width, int height, int views)
 	resolved = CreateTexture(width, height, views, DXGI_FORMAT_R11G11B10_FLOAT, Target, 1, MemoryKind::Targets);
 	for (int i = 0; i < BloomLevels; i++)
 		bloom[i] = CreateTexture(std::max(width >> (i + 1), 1), std::max(height >> (i + 1), 1), views, DXGI_FORMAT_R11G11B10_FLOAT, Target, 1, MemoryKind::Targets);
+	// Read by the final pass even when bloom is off, where nothing else ever writes it.
+	const float black[4] = {};
+	context->ClearRenderTargetView(bloom[0].rtv.Get(), black);
 	LogVerbose("VR: render targets {}x{} x{} views, {}x MSAA", width, height, views, Samples);
 }
 
@@ -324,9 +341,21 @@ void WorldBounds(const MeshDraw &draw, Vec3 &boundsMin, Vec3 &boundsMax)
 	}
 }
 
-/** Appends the draws that pass `keep`, grouped by mesh, to the instance list. */
+/** Squared distance from a point to a box. */
+float DistanceSquared(const Vec3 &point, const Vec3 &boundsMin, const Vec3 &boundsMax)
+{
+	const float dx = std::max({ boundsMin.x - point.x, 0.F, point.x - boundsMax.x });
+	const float dy = std::max({ boundsMin.y - point.y, 0.F, point.y - boundsMax.y });
+	const float dz = std::max({ boundsMin.z - point.z, 0.F, point.z - boundsMax.z });
+	return dx * dx + dy * dy + dz * dz;
+}
+
+/**
+ * Appends the draws that pass `keep`, grouped by mesh, to the instance list.
+ * With a `viewer` the groups are put nearest first.
+ */
 template <typename Keep>
-void Batches(const Scene &scene, std::vector<Batch> &batches, Keep keep)
+void Batches(const Scene &scene, std::vector<Batch> &batches, Keep keep, const Vec3 *viewer = nullptr)
 {
 	batches.clear();
 	order.clear();
@@ -338,10 +367,18 @@ void Batches(const Scene &scene, std::vector<Batch> &batches, Keep keep)
 	for (const uint32_t index : order) {
 		const MeshDraw &draw = scene.meshes[index];
 		if (batches.empty() || batches.back().mesh != draw.mesh)
-			batches.push_back({ draw.mesh, static_cast<uint32_t>(instances.size()), 0 });
+			batches.push_back({ draw.mesh, static_cast<uint32_t>(instances.size()), 0, 1e30F });
 		batches.back().count++;
+		if (viewer != nullptr) {
+			Vec3 boundsMin;
+			Vec3 boundsMax;
+			WorldBounds(draw, boundsMin, boundsMax);
+			batches.back().nearest = std::min(batches.back().nearest, DistanceSquared(*viewer, boundsMin, boundsMax));
+		}
 		instances.push_back(draw.instance);
 	}
+	if (viewer != nullptr)
+		std::stable_sort(batches.begin(), batches.end(), [](const Batch &a, const Batch &b) { return a.nearest < b.nearest; });
 }
 
 void DrawBatches(const std::vector<Batch> &batches, uint32_t copies)
@@ -438,7 +475,7 @@ void Post(int view, const Output &output, int width, int height)
 
 	// Bloom: threshold and shrink five times, then add each level back into the one above.
 	const float threshold = 1.0F;
-	for (int i = 0; i < BloomLevels; i++) {
+	for (int i = 0; i < BloomLevels && Bloom; i++) {
 		const Texture &source = i == 0 ? resolved : bloom[i - 1];
 		UnbindTargets();
 		BindSource(source.srv.Get());
@@ -446,7 +483,7 @@ void Post(int view, const Output &output, int width, int height)
 		DrawFullscreen(psBloomDown.Get(), bloom[i].sliceRtv[view].Get(), nullptr, bloom[i].width, bloom[i].height, post);
 	}
 	context->OMSetBlendState(blendAdd.Get(), nullptr, 0xFFFFFFFF);
-	for (int i = BloomLevels - 1; i > 0; i--) {
+	for (int i = BloomLevels - 1; i > 0 && Bloom; i--) {
 		UnbindTargets();
 		BindSource(bloom[i].srv.Get());
 		const float post[4] = { slice, 0, 0.5F / static_cast<float>(bloom[i].width), 0.5F / static_cast<float>(bloom[i].height) };
@@ -528,15 +565,34 @@ void DrawScene(const Scene &scene, int firstView, int copies, int width, int hei
 	context->OMSetRenderTargets(1, &target, depth);
 	context->OMSetDepthStencilState(depthScene.Get(), 0);
 	context->OMSetBlendState(blendCoverage.Get(), nullptr, 0xFFFFFFFF);
-	context->VSSetShader(vsMesh.Get(), nullptr, 0);
-	context->PSSetShader(plainSurfaces ? psSurfacePlain.Get() : psSurface.Get(), nullptr, 0);
-	DrawBatches(sceneBatches, copies);
+	const auto drawSurfaces = [&] {
+		context->VSSetShader(vsMesh.Get(), nullptr, 0);
+		context->PSSetShader(plainSurfaces ? psSurfacePlain.Get() : psSurface.Get(), nullptr, 0);
+		DrawBatches(sceneBatches, copies);
+	};
+	// Nearest first, the carved models go before the level: what the player holds is among
+	// them, and covers a good part of the view.
+	if (!NearestFirst)
+		drawSurfaces();
 
 	if (!scene.carved.empty()) {
 		// One draw each: a carved model is one pose of one creature, or one object.
+		context->IASetInputLayout(meshLayout.Get());
+		context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		context->VSSetShader(vsCarved.Get(), nullptr, 0);
 		context->PSSetShader(psCarved.Get(), nullptr, 0);
-		for (uint32_t i = 0; i < scene.carved.size(); i++) {
+		order.resize(scene.carved.size());
+		for (uint32_t i = 0; i < order.size(); i++)
+			order[i] = i;
+		if (NearestFirst) {
+			const auto away = [&](uint32_t index) {
+				const Vec3 at = Transform(scene.carved[index].instance.world, { 0, 0, 0 });
+				const Vec3 to { at.x - viewerPosition.x, at.y - viewerPosition.y, at.z - viewerPosition.z };
+				return Dot(to, to);
+			};
+			std::stable_sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) { return away(a) < away(b); });
+		}
+		for (const uint32_t i : order) {
 			const Mesh &mesh = *scene.carved[i].mesh;
 			const UINT stride = sizeof(Vertex);
 			const UINT offset = 0;
@@ -549,6 +605,8 @@ void DrawScene(const Scene &scene, int firstView, int copies, int width, int hei
 			CountDraw(mesh.indexCount / 3 * copies);
 		}
 	}
+	if (NearestFirst)
+		drawSurfaces();
 
 	if (!scene.sprites.empty()) {
 		context->IASetInputLayout(nullptr);
@@ -624,6 +682,7 @@ void RendererRender(const Scene &scene, const View *views, int viewCount, int wi
 	}
 
 	const ScopedTimer timer(ProfileScope::Render);
+	viewerPosition = views[0].position;
 	EnsureTargets(width, height, viewCount);
 	stats = {};
 	const Environment &environment = scene.environment;
@@ -646,7 +705,7 @@ void RendererRender(const Scene &scene, const View *views, int viewCount, int wi
 	set(frame.headRight, scene.headRight, scene.time);
 	set(frame.headUp, scene.headUp, environment.exposure);
 	set(frame.fog, { environment.fogColor[0], environment.fogColor[1], environment.fogColor[2] }, environment.fogDensity);
-	set(frame.ambient, { environment.ambient[0], environment.ambient[1], environment.ambient[2] }, environment.bloom);
+	set(frame.ambient, { environment.ambient[0], environment.ambient[1], environment.ambient[2] }, Bloom ? environment.bloom : 0);
 	set(frame.sunDirection, Normalize(environment.sunDirection), 1.0F / ShadowMapSize);
 	set(frame.sunColor, { environment.sunColor[0], environment.sunColor[1], environment.sunColor[2] }, sun ? 1.F : 0.F);
 	frame.shadowViewProj = sun ? ShadowMatrix(environment) : Mat4 {};
@@ -686,7 +745,7 @@ void RendererRender(const Scene &scene, const View *views, int viewCount, int wi
 				return true;
 		}
 		return false;
-	});
+	}, NearestFirst ? &views[0].position : nullptr);
 	stats.meshInstances = static_cast<uint32_t>(instances.size());
 	if (sun) {
 		Batches(scene, shadowBatches, [&](const MeshDraw &draw) {

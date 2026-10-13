@@ -166,6 +166,7 @@ void RenderMirror();
 void ReleaseMirror();
 
 // debug/offscreen.cpp
+void EnterLevel(int level);
 void DebugOffscreen(const char *directory);
 void DebugBench(int level, const char *directory);
 

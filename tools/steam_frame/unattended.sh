@@ -13,8 +13,9 @@
 #            defaults). Every configuration is run --repeat times (default 2) and the results
 #            are printed as a table and kept in build-frame/bench/.
 #   session  the VR mode itself, in the headset, for --seconds (default 60): the debug autostart
-#            takes it into a game, the left eye is saved every 150 frames, and the last picture
-#            and the log come back to build-frame/session/.
+#            takes it into a game, both eyes are saved every 150 frames, and the last pictures
+#            and the log come back to build-frame/session/. Nobody wearing it means no tracked
+#            head, so pass DEVILUTIONX_VR_FORCE_RENDER=1 to have the world drawn anyway.
 #
 # The headset is shared, and SteamVR runs one VR application at a time: starting ours ends
 # whatever else is running, in the face of whoever wears it. So every run first checks that no
@@ -137,7 +138,7 @@ session)
 		case "$1" in
 		--seconds) seconds="${2:?}"; shift 2 ;;
 		*)
-			[[ "$1" =~ ^[A-Z][A-Z0-9_]*=[A-Za-z0-9._-]*$ ]] || die "bad setting $1"
+			[[ "$1" =~ ^[A-Z][A-Z0-9_]*=[A-Za-z0-9._/-]*$ ]] || die "bad setting $1"
 			settings+=("$1")
 			shift
 			;;
@@ -160,6 +161,7 @@ session)
 	" || true
 	scp -q "${ssh_opts[@]}" "$frame:.local/share/DiabloVR/run.log" "$out/run.log" || die "no log came back"
 	scp -q "${ssh_opts[@]}" "$frame:.local/share/DiabloVR/vr-dumps/eye.bmp" "$out/eye0.bmp" || echo "no eye picture came back" >&2
+	scp -q "${ssh_opts[@]}" "$frame:.local/share/DiabloVR/vr-dumps/eye-right.bmp" "$out/eye1.bmp" 2> /dev/null || true
 	remote "rm -rf $remote_data/vr-dumps"
 	grep -E 'VR: (eye|display period|controllers|first frame|session|xrEndFrame|refresh)|ERROR' "$out/run.log" | cut -c1-200 | sort | uniq -c | sort -rn | head -20
 	grep 'VR: perf' "$out/run.log" | tail -3 | cut -c1-200

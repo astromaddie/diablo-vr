@@ -55,6 +55,8 @@ bool EnsureOffscreen(int width, int height)
 	return VrWorldAvailable() && colorView[1] != nullptr;
 }
 
+} // namespace
+
 /** Goes to a dungeon level whose layout is the same in every run, so two builds can be compared. */
 void EnterLevel(int level)
 {
@@ -65,6 +67,8 @@ void EnterLevel(int level)
 	InitQuests(); // Which quests are in the game, and so their set pieces, comes from the seeds.
 	StartNewLvl(*MyPlayer, WM_DIABNEXTLVL, level);
 }
+
+namespace {
 
 VrView MakeView(const float position[3], const float orientation[4], const XrFovf &fov, float sideways = 0)
 {

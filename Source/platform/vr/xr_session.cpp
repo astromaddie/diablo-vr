@@ -171,6 +171,9 @@ std::vector<const char *> NegotiateExtensions()
 			enabled.push_back(name);
 	};
 	negotiate(XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME, hasDepthLayer);
+	// DEVILUTIONX_VR_DEPTH_LAYER=0: no depth is handed to the compositor, which saves two
+	// swapchains and a depth write per eye where the compositor does nothing with it.
+	hasDepthLayer = hasDepthLayer && Knob("DEVILUTIONX_VR_DEPTH_LAYER", 1) != 0;
 	negotiate(XR_KHR_VISIBILITY_MASK_EXTENSION_NAME, hasVisibilityMask);
 	negotiate(XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME, hasRefreshRate);
 	negotiate("XR_VALVE_frame_controller_interaction", hasFrameControllers);

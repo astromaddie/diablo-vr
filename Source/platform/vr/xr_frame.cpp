@@ -64,6 +64,11 @@ bool RenderWorld(XrTime time, XrCompositionLayerProjectionView projectionViews[2
 		if (hands[hand].valid)
 			ToWorld(pose, hands[hand].position, hands[hand].orientation);
 	}
+	// Counted from the first frame, so that a float still tells one frame's time from the next's hours in.
+	static XrTime firstTime;
+	if (firstTime == 0)
+		firstTime = time;
+	VrWorldSetClock(static_cast<float>(static_cast<double>(time - firstTime) * 1e-9));
 	VrWorldUpdate(headPosition, headOrientation, hands[Left], hands[Right], worldPointerValid, worldPointerHit);
 
 	// Both eyes are drawn in one pass, so both images are acquired before anything is drawn.
@@ -106,8 +111,10 @@ bool RenderWorld(XrTime time, XrCompositionLayerProjectionView projectionViews[2
 
 		static const std::string dumpDirectory = SDL_getenv("DEVILUTIONX_VR_DUMP") != nullptr ? SDL_getenv("DEVILUTIONX_VR_DUMP") : "";
 		static int frameCounter;
-		if (!dumpDirectory.empty() && ++frameCounter % 150 == 0)
+		if (!dumpDirectory.empty() && ++frameCounter % 150 == 0) {
 			DumpTexture(eyes[0].images[imageIndex[0]], (dumpDirectory + "/eye.bmp").c_str());
+			DumpTexture(eyes[1].images[imageIndex[1]], (dumpDirectory + "/eye-right.bmp").c_str());
+		}
 	}
 
 	for (int i = 0; i < acquired; i++) {
