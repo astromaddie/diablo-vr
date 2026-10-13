@@ -1,17 +1,19 @@
-# The pinned Linux build environment for the Steam Frame build of the VR mode: Ubuntu 22.04
-# (glibc 2.35, the release floor), gcc-12 and CMake 3.31.6, plus what the two translation layers
-# need. dxvk-native turns the renderer's Direct3D 11 into Vulkan and vkd3d compiles its HLSL.
+# The pinned Linux build environment for the Steam Frame build of the VR mode: Ubuntu 24.04 with
+# its gcc 13 (the game needs C++23 and <format>) and CMake 3.31.6, plus what the two translation
+# layers need. dxvk-native turns the renderer's Direct3D 11 into Vulkan and vkd3d compiles its HLSL.
+# Binaries built here need glibc 2.39 and GLIBCXX 3.4.32 at most. The Frame has glibc 2.39 itself
+# and 2.41 with GLIBCXX 3.4.33 inside Steam Linux Runtime 4, where Steam titles run.
 # The image builds for the Docker host's architecture, so on an Apple Silicon Mac it is arm64,
 # the Steam Frame's. Host testing runs on lavapipe (Mesa's software Vulkan) under Xvfb.
 #
 #   docker build -t diablo-vr-linux -f tools/steam_frame/docker/linux.Dockerfile tools/steam_frame/docker
 #   tools/steam_frame/build.sh
-ARG BASE_IMAGE=ubuntu:22.04
+ARG BASE_IMAGE=ubuntu:24.04
 FROM ${BASE_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    CC=gcc-12 \
-    CXX=g++-12
+    CC=gcc \
+    CXX=g++
 
 ARG CMAKE_VERSION=3.31.6
 ARG CMAKE_SHA256_AARCH64=b4cc788d63112b2749b40627e719eb5d3b8ed8f00c36d77189f4019cfe64bc9e
@@ -26,7 +28,7 @@ ARG VKD3D_VERSION=2.1
 ARG VKD3D_SHA256=7510146aff2adfb4ae07ab890701a607e5ff7c66e57100cfc9f630ec92eeda6a
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential gcc-12 g++-12 ninja-build pkg-config \
+        build-essential ninja-build pkg-config \
         git ca-certificates wget file rsync bzip2 xz-utils patch gettext \
         python3 python3-pip \
         flex bison perl libjson-perl mingw-w64-tools \
@@ -38,8 +40,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && git config --global --add safe.directory '*'
 
-# Distribution meson (0.61) is too old for dxvk's subprojects.
-RUN pip3 install --no-cache-dir "meson==${MESON_VERSION}"
+# meson pinned, as the versions of everything else that builds dxvk are.
+RUN pip3 install --no-cache-dir --break-system-packages "meson==${MESON_VERSION}"
 
 RUN set -eux; \
     arch="$(uname -m)"; \
@@ -51,8 +53,9 @@ RUN set -eux; \
     rm "cmake-${CMAKE_VERSION}-linux-${arch}.tar.gz"
 ENV PATH=/opt/cmake/bin:$PATH
 
-# glslang: dxvk compiles its built-in shaders with it. Ubuntu 22.04's 11.8 emits SPIR-V that current
-# Mesa rejects, which shows up as a failed built-in compute pipeline at device creation.
+# glslang: dxvk compiles its built-in shaders with it. Old ones (Ubuntu 22.04's 11.8) emit SPIR-V
+# that current Mesa rejects, which shows up as a failed built-in compute pipeline at device
+# creation, so this one is pinned too.
 RUN set -eux; \
     cd /tmp; \
     wget -q "https://github.com/KhronosGroup/glslang/archive/refs/tags/${GLSLANG_VERSION}.tar.gz" -O glslang.tar.gz; \
@@ -63,7 +66,7 @@ RUN set -eux; \
     cmake --build build-glslang --target install; \
     rm -rf /tmp/*
 
-# Current Vulkan and SPIR-V headers: Ubuntu 22.04's (1.3.204) are older than vkd3d accepts.
+# Pinned Vulkan and SPIR-V headers, for vkd3d and for the game's OpenXR binding.
 RUN set -eux; \
     cd /tmp; \
     wget -q "https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/${KHRONOS_SDK}.tar.gz" -O vulkan-headers.tar.gz; \
@@ -97,11 +100,12 @@ RUN set -eux; \
     make install; \
     rm -rf /tmp/*
 
-# Host testing: a virtual X server and Mesa's software Vulkan driver (lavapipe).
+# Host testing: a virtual X server and Mesa's software Vulkan driver (lavapipe), and ImageMagick
+# for screenshots of it.
 # libsdl2-dev is there for its headers only: dxvk-native's window system code compiles against
 # them and looks SDL2 up at run time, where it finds the one the game was built with.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        xvfb xauth mesa-vulkan-drivers libsdl2-dev \
+        xvfb xauth mesa-vulkan-drivers libsdl2-dev imagemagick \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
