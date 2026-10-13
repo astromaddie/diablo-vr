@@ -64,7 +64,8 @@ const int DebugView = static_cast<int>(Knob("DEVILUTIONX_VR_DEBUG_VIEW", 0));
 const float Grit = Knob("DEVILUTIONX_VR_GRIT", Classic() ? 0.F : 1.F);
 /** Grit texels per meter: the game's own wall art has about 45. */
 const float GritTexels = Knob("DEVILUTIONX_VR_GRIT_TEXELS", 48.0F);
-const int Samples = std::clamp(static_cast<int>(Knob("DEVILUTIONX_VR_MSAA", 4)), 2, 8);
+/** 1: no MSAA. The scene is then drawn straight into the post-processing source, with no resolve pass. */
+const int Samples = std::clamp(static_cast<int>(Knob("DEVILUTIONX_VR_MSAA", 4)), 1, 8);
 
 ComPtr<ID3D11VertexShader> vsCarved, vsMesh, vsMeshShadow, vsSprite, vsParticle, vsFullscreen, vsPanel, vsMask;
 ComPtr<ID3D11PixelShader> psCarved, psSurface, psSprite, psParticle, psResolve, psBloomDown, psBloomUp, psFinal, psPanel;
@@ -111,6 +112,8 @@ time_t FileTime(const std::string &path)
 bool CompileShaders()
 {
 	std::string source = layered ? "#define LAYERED 1\n" : "";
+	if (Samples == 1)
+		source += "#define SINGLE_SAMPLE 1\n";
 	bool fromFile = false;
 	if (!shaderFile.empty()) {
 		if (SDL_RWops *file = SDL_RWFromFile(shaderFile.c_str(), "rb"); file != nullptr) {
@@ -239,12 +242,13 @@ bool CreateStates()
 
 void EnsureTargets(int width, int height, int views)
 {
-	if (msColor && msColor.width == width && msColor.height == height && targetViews == views)
+	if (resolved && resolved.width == width && resolved.height == height && targetViews == views)
 		return;
 	targetViews = views;
 	constexpr uint32_t Target = TextureRenderTarget | TextureSliceViews;
 	// 11-bit float channels: HDR range at the cost of an 8-bit target, and no alpha is needed.
-	msColor = CreateTexture(width, height, views, DXGI_FORMAT_R11G11B10_FLOAT, Target, Samples, MemoryKind::Targets);
+	if (Samples > 1)
+		msColor = CreateTexture(width, height, views, DXGI_FORMAT_R11G11B10_FLOAT, Target, Samples, MemoryKind::Targets);
 	msDepth = CreateTexture(width, height, views, DXGI_FORMAT_D32_FLOAT, TextureDepth | TextureSliceViews, Samples, MemoryKind::Targets);
 	resolved = CreateTexture(width, height, views, DXGI_FORMAT_R11G11B10_FLOAT, Target, 1, MemoryKind::Targets);
 	for (int i = 0; i < BloomLevels; i++)
@@ -419,7 +423,8 @@ void Post(int view, const Output &output, int width, int height)
 	ID3D11ShaderResourceView *multisampled[2] = { msColor.srv.Get(), msDepth.srv.Get() };
 	context->PSSetShaderResources(11, 2, multisampled);
 	const float resolvePost[4] = { slice, static_cast<float>(Samples), 0, 0 };
-	DrawFullscreen(psResolve.Get(), resolved.sliceRtv[view].Get(), nullptr, width, height, resolvePost);
+	if (Samples > 1)
+		DrawFullscreen(psResolve.Get(), resolved.sliceRtv[view].Get(), nullptr, width, height, resolvePost);
 
 	// Bloom: threshold and shrink five times, then add each level back into the one above.
 	const float threshold = 1.0F;
@@ -480,7 +485,8 @@ void DrawScene(const Scene &scene, int firstView, int copies, int width, int hei
 	UploadFrame();
 
 	const bool all = copies == targetViews;
-	ID3D11RenderTargetView *target = all ? msColor.rtv.Get() : msColor.sliceRtv[firstView].Get();
+	const Texture &color = Samples > 1 ? msColor : resolved;
+	ID3D11RenderTargetView *target = all ? color.rtv.Get() : color.sliceRtv[firstView].Get();
 	ID3D11DepthStencilView *depth = all ? msDepth.dsv.Get() : msDepth.sliceDsv[firstView].Get();
 	// Where nothing is drawn: under the sky the veil that ends the view, below ground the dark.
 	context->ClearRenderTargetView(target, frame.sunColor[3] > 0 ? frame.viewFog : frame.fog);

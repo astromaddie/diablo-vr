@@ -7,6 +7,7 @@
 # the view from the player turned in 45 degree steps, stereo0 and stereo1 one frame for both eyes.
 #
 #   LEVELS="0 2 5"   which levels to draw: 0 is the town, 1 to 16 the dungeon (default "0 2")
+#   SETTINGS="DEVILUTIONX_VR_MSAA=1 ..."   settings of the VR mode for the run
 set -euo pipefail
 
 pkg=/src/build-frame/package/DiabloVR
@@ -35,6 +36,9 @@ unset SDL_VIDEODRIVER
 export DXVK_LOG_LEVEL=info DXVK_LOG_PATH="$render"
 # Starts a game by itself, so the renderer has a level to draw.
 export DEVILUTIONX_VR_AUTOSTART=1
+for setting in ${SETTINGS:-}; do
+	export "${setting?}"
+done
 
 cd "$pkg"
 failed=0

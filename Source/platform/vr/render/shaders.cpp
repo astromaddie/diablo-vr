@@ -99,8 +99,13 @@ Buffer<float4> bones : register(t7);
 StructuredBuffer<MeshInstance> meshInstances : register(t8);
 StructuredBuffer<SpriteInstance> spriteInstances : register(t9);
 StructuredBuffer<ParticleInstance> particleInstances : register(t10);
+#if SINGLE_SAMPLE
+// Without MSAA the scene is drawn straight into the post-processing source, and its depth is a plain texture.
+Texture2DArray<float> msDepth : register(t12);
+#else
 Texture2DMSArray<float4> msColor : register(t11);
 Texture2DMSArray<float> msDepth : register(t12);
+#endif
 Texture2DArray postSource : register(t13);
 Texture2DArray postBloom : register(t14);
 Texture2DArray modelTextures : register(t15);
@@ -819,6 +824,9 @@ FullOut VsFullscreen(uint vertexId : SV_VertexID)
 // very bright sample (a flame against the dark) wins the pixel and the edge stays jagged.
 float4 PsResolve(FullOut input) : SV_Target
 {
+#if SINGLE_SAMPLE
+	return 0;
+#else
 	int3 pixel = int3(input.clip.xy, post.x);
 	float3 sum = 0;
 	float weights = 0;
@@ -829,6 +837,7 @@ float4 PsResolve(FullOut input) : SV_Target
 		weights += weight;
 	}
 	return float4(sum / weights, 1);
+#endif
 }
 
 float3 Box(float2 uv, float2 texel)
@@ -875,7 +884,11 @@ FinalOut PsFinal(FullOut input)
 	color = pow(color, 1 / 2.2) + (Noise(input.clip.xy) - 0.5) / 255;
 	FinalOut output;
 	output.color = float4(pow(max(color, 0), 2.2), 1);
+#if SINGLE_SAMPLE
+	output.depth = msDepth.Load(int4(input.uv * post.zw, post.x, 0));
+#else
 	output.depth = msDepth.Load(int3(input.uv * post.zw, post.x), 0);
+#endif
 	return output;
 }
 

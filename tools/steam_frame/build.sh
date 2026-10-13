@@ -19,7 +19,8 @@
 #            main menu, saves build-frame/smoke/menu.png and checks that SIGTERM ends the game
 #   render   not in the default list. Needs a VR=ON package. Draws real levels with the VR mode's
 #            headset-free renderer on lavapipe (software Vulkan) and leaves the pictures in
-#            build-frame/render/level<N>/. LEVELS="0 2" picks them: 0 is the town
+#            build-frame/render/level<N>/. LEVELS="0 2" picks them: 0 is the town.
+#            SETTINGS="DEVILUTIONX_VR_MSAA=1" passes settings of the VR mode to the run
 #
 # Set VR=ON for the game and package steps alike. The default is OFF.
 #
@@ -189,7 +190,7 @@ step_render() {
 	[ -f "$data" ] || { echo "no DIABDAT.MPQ at $data (set DIABDAT=)" >&2; exit 1; }
 	[ -x "$repo/$out/package/DiabloVR/devilutionx" ] || { echo "no package: run the package step first" >&2; exit 1; }
 	docker run --rm -v "$repo":/src -v "$data":/diabdat/DIABDAT.MPQ:ro -w /src \
-		-e LEVELS="${LEVELS:-0 2}" -e RENDER_TIMEOUT="${RENDER_TIMEOUT:-600}" "$image" bash /src/tools/steam_frame/render-in-container.sh
+		-e LEVELS="${LEVELS:-0 2}" -e RENDER_TIMEOUT="${RENDER_TIMEOUT:-600}" -e SETTINGS="${SETTINGS:-}" "$image" bash /src/tools/steam_frame/render-in-container.sh
 }
 
 [ $# -gt 0 ] || set -- image dxvk game package
