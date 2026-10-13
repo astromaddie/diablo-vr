@@ -73,6 +73,7 @@ Uint32 sessionStartTick;
 bool hasDepthLayer;
 bool hasVisibilityMask;
 bool hasRefreshRate;
+bool hasFrameControllers;
 int64_t depthFormat;
 /** Height of the tracking origin above the real floor; 0 when the runtime gives us a floor-level space. */
 float floorOffset;
@@ -172,6 +173,7 @@ std::vector<const char *> NegotiateExtensions()
 	negotiate(XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME, hasDepthLayer);
 	negotiate(XR_KHR_VISIBILITY_MASK_EXTENSION_NAME, hasVisibilityMask);
 	negotiate(XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME, hasRefreshRate);
+	negotiate("XR_VALVE_frame_controller_interaction", hasFrameControllers);
 	return enabled;
 }
 
@@ -488,6 +490,8 @@ void PollEvents()
 			return;
 		} else if (event.type == XR_TYPE_EVENT_DATA_VISIBILITY_MASK_CHANGED_KHR) {
 			UpdateVisibilityMask(reinterpret_cast<XrEventDataVisibilityMaskChangedKHR *>(&event)->viewIndex);
+		} else if (event.type == XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED) {
+			ControllersChanged();
 		} else if (event.type == XR_TYPE_EVENT_DATA_DISPLAY_REFRESH_RATE_CHANGED_FB) {
 			LogInfo("VR: refresh rate now {:.0f} Hz", reinterpret_cast<XrEventDataDisplayRefreshRateChangedFB *>(&event)->toDisplayRefreshRate);
 		}

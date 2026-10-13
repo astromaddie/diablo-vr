@@ -89,6 +89,8 @@ extern int64_t swapchainFormat;
 extern Uint32 swapchainSdlFormat;
 extern EyeTarget eyes[2];
 extern float floorOffset;
+/** The runtime knows the Steam Frame's controllers (XR_VALVE_frame_controller_interaction). */
+extern bool hasFrameControllers;
 /** SDL tick at which the running session began. */
 extern Uint32 sessionStartTick;
 
@@ -134,6 +136,10 @@ extern float worldPointerHit[3];
 extern bool freeValid;
 
 bool InitActions();
+/** The runtime bound another kind of controller: note which. */
+void ControllersChanged();
+/** Anything that needs the 2D frame in view: panels, dialogs, shops, menus, the automap. */
+bool UiOpen();
 bool InitVirtualPad();
 void SelfCheck();
 void SetKey(bool &isDown, bool down, SDL_Keycode key);
