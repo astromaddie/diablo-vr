@@ -97,6 +97,11 @@ fi
 
 remote true 2> /dev/null || die "The Frame is not reachable at $frame (USB cable, charge, ssh key)."
 
+# Never under a running game: it would be reading the files being replaced.
+if remote "ps -eo args | grep -q '[d]evkit-game/$title/devilutionx'"; then
+	die "$title is running on the Frame. Quit it first."
+fi
+
 echo "== copying the package to $frame:$remote_dir"
 remote "mkdir -p ~/$remote_dir" || die "could not create ~/$remote_dir on the Frame"
 rsync "${rsync_opts[@]}" --delete "$package/" "$frame:$remote_dir/" || die "rsync of the package failed"
