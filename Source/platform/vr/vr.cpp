@@ -343,6 +343,7 @@ void VrPresent(SDL_Surface *surface)
 	const bool showWorld = VrWorldAvailable();
 	if (showWorld != world3d) {
 		world3d = showWorld;
+		LogVerbose("VR: showing {}", world3d ? "the world" : "the screen");
 		mirrorReady = false;
 		screenPlaced = false;
 		anchorPending = true;
@@ -370,7 +371,9 @@ void VrPresent(SDL_Surface *surface)
 	XrCompositionLayerQuad extra { XR_TYPE_COMPOSITION_LAYER_QUAD };
 	const XrCompositionLayerBaseHeader *layers[3];
 	uint32_t layerCount = 0;
-	if (frameState.shouldRender && screenPlaced && surface != nullptr && UploadFrame(surface)) {
+	// Debug aid: a headset nobody wears is told not to render. See RenderWorld.
+	static const bool forceRender = Knob("DEVILUTIONX_VR_FORCE_RENDER", 0) != 0;
+	if ((frameState.shouldRender || forceRender) && screenPlaced && surface != nullptr && UploadFrame(surface)) {
 		quad.space = localSpace;
 		quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
 		quad.subImage.swapchain = swapchain;

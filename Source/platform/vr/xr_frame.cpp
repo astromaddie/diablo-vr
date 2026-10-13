@@ -29,8 +29,30 @@ bool RenderWorld(XrTime time, XrCompositionLayerProjectionView projectionViews[2
 	uint32_t viewCount = 0;
 	XrPosef head;
 	if (XR_FAILED(xrLocateViews(session, &locateInfo, &viewState, 2, &viewCount, views)) || viewCount != 2
-	    || (viewState.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT) == 0 || !Locate(viewSpace, time, head))
-		return false;
+	    || (viewState.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT) == 0 || !Locate(viewSpace, time, head)) {
+		// Debug aid (DEVILUTIONX_VR_FORCE_RENDER=1): a headset nobody wears has no head to draw
+		// from, so one is made up, standing at the centre of the room and looking ahead, or
+		// turned by DEVILUTIONX_VR_DIAG_YAW degrees. The pictures can then be checked on a desk.
+		static const bool force = Knob("DEVILUTIONX_VR_FORCE_RENDER", 0) != 0;
+		static bool logged;
+		if (!logged)
+			LogInfo("VR: the head is not tracked ({} views, state {:#x}), {}", viewCount, static_cast<unsigned>(viewState.viewStateFlags), force ? "drawing from a made-up one" : "the world is not drawn");
+		logged = true;
+		if (!force)
+			return false;
+		const float yaw = Knob("DEVILUTIONX_VR_DIAG_YAW", 0) * 0.0174533F;
+		head.orientation = { 0, std::sin(yaw / 2), 0, std::cos(yaw / 2) };
+		head.position = { 0, 1.6F, 0 };
+		// The Steam Frame's own eyes, as its runtime reports them.
+		const XrFovf fovs[2] = { { -1.028F, 0.885F, 0.864F, -1.048F }, { -0.877F, 1.033F, 0.866F, -1.042F } };
+		for (int i = 0; i < 2; i++) {
+			const XrVector3f offset = Rotate(head.orientation, { i == 0 ? -0.032F : 0.032F, 0, 0 });
+			views[i].pose.orientation = head.orientation;
+			views[i].pose.position = { head.position.x + offset.x, head.position.y + offset.y, head.position.z + offset.z };
+			if (views[i].fov.angleRight - views[i].fov.angleLeft < 0.1F)
+				views[i].fov = fovs[i];
+		}
+	}
 
 	float headPosition[3];
 	float headOrientation[4];

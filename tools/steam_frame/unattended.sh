@@ -44,8 +44,9 @@ remote() {
 guard() {
 	local lock="$HOME/.claude/skills/steam-frame-vr-port/scripts/frame-lock.sh" state
 	if [[ -n "${FRAME_LOCK:-}" && -x "$lock" ]]; then
-		"$lock" status | head -1 | grep -q "^HELD by $FRAME_LOCK " || {
-			echo "the Frame is not booked by $FRAME_LOCK: $("$lock" status | head -1)"
+		state="$("$lock" status)"
+		[[ "$state" == "HELD by $FRAME_LOCK "* ]] || {
+			echo "the Frame is not booked by $FRAME_LOCK: ${state%%$'\n'*}"
 			return 1
 		}
 	fi
@@ -102,7 +103,7 @@ bench)
 			reason="$(guard)" || die "stopping: $reason"
 			n=$((n + 1))
 			for setting in $config; do
-				[[ "$setting" =~ ^[A-Z][A-Z0-9_]*=[A-Za-z0-9._-]*$ ]] || die "bad setting $setting"
+				[[ "$setting" =~ ^[A-Z][A-Z0-9_]*=[A-Za-z0-9._/-]*$ ]] || die "bad setting $setting"
 			done
 			# The benchmark quits by itself; the timeout is for a build that hangs.
 			remote "

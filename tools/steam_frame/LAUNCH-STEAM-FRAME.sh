@@ -24,6 +24,10 @@ cd "$here"
 # The Frame runs gamescope with Xwayland on :0.
 export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-x11}"
 export DISPLAY="${DISPLAY:-:0}"
+# The Frame's Vulkan driver (Turnip) chooses per render pass between tiled rendering and
+# drawing straight into memory. The renderer's passes are few and large, and drawing straight
+# into memory measured 5 to 10 percent faster for them.
+export TU_DEBUG="${TU_DEBUG-sysmem}"
 
 data="${XDG_DATA_HOME:-$HOME/.local/share}/DiabloVR"
 mkdir -p "$data"

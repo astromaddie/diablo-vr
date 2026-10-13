@@ -66,9 +66,14 @@ const float Grit = Knob("DEVILUTIONX_VR_GRIT", Classic() ? 0.F : 1.F);
 const float GritTexels = Knob("DEVILUTIONX_VR_GRIT_TEXELS", 48.0F);
 /** 1: no MSAA. The scene is then drawn straight into the post-processing source, with no resolve pass. */
 const int Samples = std::clamp(static_cast<int>(Knob("DEVILUTIONX_VR_MSAA", 4)), 1, 8);
+/** Samples a pixel takes towards each light to see whether a wall is in the way. 0: walls cast no shadows. */
+const int WallShadowSteps = std::clamp(static_cast<int>(Knob("DEVILUTIONX_VR_WALL_SHADOW_STEPS", 16)), 0, 64);
+/** Tiles between those samples, so near lights cost less. 0: always all of them. */
+const float WallShadowSpacing = Knob("DEVILUTIONX_VR_WALL_SHADOW_SPACING", 0);
+const int Anisotropy = std::clamp(static_cast<int>(Knob("DEVILUTIONX_VR_ANISOTROPY", 8)), 1, 16);
 
 ComPtr<ID3D11VertexShader> vsCarved, vsMesh, vsMeshShadow, vsSprite, vsParticle, vsFullscreen, vsPanel, vsMask;
-ComPtr<ID3D11PixelShader> psCarved, psSurface, psSprite, psParticle, psResolve, psBloomDown, psBloomUp, psFinal, psPanel;
+ComPtr<ID3D11PixelShader> psCarved, psSurface, psSurfacePlain, psSprite, psParticle, psResolve, psBloomDown, psBloomUp, psFinal, psPanel;
 ComPtr<ID3D11InputLayout> meshLayout, maskLayout;
 ComPtr<ID3D11RasterizerState> rasterSolid, rasterShadow, rasterWire;
 ComPtr<ID3D11DepthStencilState> depthScene, depthReadOnly, depthShadow, depthCopy, depthOff;
@@ -78,6 +83,8 @@ ComPtr<ID3D11SamplerState> samplerSurface, samplerLinear, samplerShadow, sampler
 Texture msColor, msDepth, resolved, bloom[BloomLevels], shadowMap, lightGrid;
 DynamicBuffer carvedInstanceBuffer, frameBuffer, drawBuffer, meshInstanceBuffer, spriteInstanceBuffer, particleInstanceBuffer, boneBuffer;
 bool layered;
+/** This frame's level has no materials, floor map or grit, so surfaces are drawn by the shader that looks none of them up. */
+bool plainSurfaces;
 int targetViews;
 RenderStats stats;
 FrameConstants frame;
@@ -114,6 +121,9 @@ bool CompileShaders()
 	std::string source = layered ? "#define LAYERED 1\n" : "";
 	if (Samples == 1)
 		source += "#define SINGLE_SAMPLE 1\n";
+	source += "#define WALL_SHADOW_STEPS " + std::to_string(WallShadowSteps) + "\n";
+	if (WallShadowSpacing > 0)
+		source += "#define WALL_SHADOW_SPACING " + std::to_string(WallShadowSpacing) + "\n";
 	bool fromFile = false;
 	if (!shaderFile.empty()) {
 		if (SDL_RWops *file = SDL_RWFromFile(shaderFile.c_str(), "rb"); file != nullptr) {
@@ -137,8 +147,8 @@ bool CompileShaders()
 			*keep = blob;
 		return true;
 	};
-	const auto pixel = [&](const char *entry, ComPtr<ID3D11PixelShader> &shader) {
-		ComPtr<ID3DBlob> blob = CompileShader(source, entry, "ps_5_0");
+	const auto pixel = [&](const char *entry, ComPtr<ID3D11PixelShader> &shader, const char *defines = "") {
+		ComPtr<ID3DBlob> blob = CompileShader(defines + source, entry, "ps_5_0");
 		ComPtr<ID3D11PixelShader> compiled;
 		if (blob == nullptr || FAILED(device->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &compiled)))
 			return false;
@@ -147,7 +157,7 @@ bool CompileShaders()
 	};
 	ComPtr<ID3DBlob> meshBlob;
 	ComPtr<ID3DBlob> maskBlob;
-	if (!vertex("VsCarved", vsCarved) || !pixel("PsCarved", psCarved))
+	if (!vertex("VsCarved", vsCarved) || !pixel("PsCarved", psCarved) || !pixel("PsSurface", psSurfacePlain, "#define PLAIN_SURFACES 1\n"))
 		return false;
 	if (!vertex("VsMesh", vsMesh, &meshBlob) || !vertex("VsMeshShadow", vsMeshShadow) || !vertex("VsSprite", vsSprite)
 	    || !vertex("VsParticle", vsParticle) || !vertex("VsFullscreen", vsFullscreen) || !vertex("VsPanel", vsPanel)
@@ -222,7 +232,7 @@ bool CreateStates()
 
 	D3D11_SAMPLER_DESC sampler {};
 	sampler.Filter = D3D11_FILTER_ANISOTROPIC;
-	sampler.MaxAnisotropy = 8;
+	sampler.MaxAnisotropy = Anisotropy;
 	sampler.AddressU = sampler.AddressV = sampler.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
 	sampler.MaxLOD = D3D11_FLOAT32_MAX;
 	ok = ok && SUCCEEDED(device->CreateSamplerState(&sampler, &samplerSurface));
@@ -519,7 +529,7 @@ void DrawScene(const Scene &scene, int firstView, int copies, int width, int hei
 	context->OMSetDepthStencilState(depthScene.Get(), 0);
 	context->OMSetBlendState(blendCoverage.Get(), nullptr, 0xFFFFFFFF);
 	context->VSSetShader(vsMesh.Get(), nullptr, 0);
-	context->PSSetShader(psSurface.Get(), nullptr, 0);
+	context->PSSetShader(plainSurfaces ? psSurfacePlain.Get() : psSurface.Get(), nullptr, 0);
 	DrawBatches(sceneBatches, copies);
 
 	if (!scene.carved.empty()) {
@@ -590,7 +600,7 @@ void RendererRelease()
 	const auto reset = [](auto &...pointers) { (pointers.Reset(), ...); };
 	reset(vsCarved, psCarved);
 	reset(vsMesh, vsMeshShadow, vsSprite, vsParticle, vsFullscreen, vsPanel, vsMask);
-	reset(psSurface, psSprite, psParticle, psResolve, psBloomDown, psBloomUp, psFinal, psPanel);
+	reset(psSurface, psSurfacePlain, psSprite, psParticle, psResolve, psBloomDown, psBloomUp, psFinal, psPanel);
 	reset(meshLayout, maskLayout, rasterSolid, rasterShadow, rasterWire);
 	reset(depthScene, depthReadOnly, depthShadow, depthCopy, depthOff);
 	reset(blendCoverage, blendPremultiplied, blendAdd, blendAlpha, samplerSurface, samplerLinear, samplerShadow, samplerRepeat);
@@ -749,6 +759,7 @@ void RendererRender(const Scene &scene, const View *views, int viewCount, int wi
 		context->PSSetShaderResources(15, 5, more);
 		ID3D11ShaderResourceView *floorMap = environment.floorMap;
 		context->PSSetShaderResources(21, 1, &floorMap);
+		plainSurfaces = environment.materials == nullptr && environment.floorMap == nullptr && frame.abyss[2] <= 0;
 		if (layered) {
 			DrawScene(scene, 0, viewCount, width, height, outputs);
 		} else {

@@ -258,6 +258,14 @@ float4 VsMask(float2 position : POSITION) : SV_Position
 )hlsl"
     // MSVC caps one string literal at 16 KB; adjacent literals are joined.
     R"hlsl(
+// Samples along the line from a surface point to a light that look for a wall in between
+// (DEVILUTIONX_VR_WALL_SHADOW_STEPS). 0: walls cast no shadows. With WALL_SHADOW_SPACING
+// (DEVILUTIONX_VR_WALL_SHADOW_SPACING, in tiles) that is the most, and a pixel takes one
+// sample per that length of the way.
+#ifndef WALL_SHADOW_STEPS
+#define WALL_SHADOW_STEPS 16
+#endif
+
 float Noise(float2 pixel)
 {
 	return frac(52.9829189 * frac(dot(pixel, float2(0.06711056, 0.00583715))));
@@ -270,9 +278,14 @@ float WallShadow(float3 from, float3 to, float jitter)
 	float2 a = from.xz * level.z;
 	float2 b = to.xz * level.z;
 	float visibility = 1;
-	const int Steps = 16;
-	for (int i = 0; i < Steps; i++) {
-		float t = (i + jitter) / Steps;
+#ifdef WALL_SHADOW_SPACING
+	// A light close by needs fewer samples to look at the same share of every tile on the way.
+	int steps = clamp((int)ceil(length(b - a) * level.y / WALL_SHADOW_SPACING), 1, max(WALL_SHADOW_STEPS, 1));
+#else
+	const int steps = max(WALL_SHADOW_STEPS, 1);
+#endif
+	for (int i = 0; i < steps; i++) {
+		float t = (i + jitter) / steps;
 		float solid = occupancy.SampleLevel(linearClamp, float3(lerp(a, b, t), 0), 0).r;
 		visibility = min(visibility, 1 - smoothstep(0.45, 0.8, solid));
 	}
@@ -332,7 +345,11 @@ float3 Lighting(float3 world, float3 normal, float3 toEye, float specular, float
 		float facing = lerp(saturate(dot(normal, toLight)), 1, wrap);
 		if (facing * falloff <= 0.0005)
 			continue;
+#if WALL_SHADOW_STEPS > 0
 		float visible = source.shadowed > 0.5 ? WallShadow(open, source.position, jitter) : 1;
+#else
+		float visible = 1;
+#endif
 		light += source.color * (facing * falloff * visible);
 		float3 halfway = normalize(toLight + toEye);
 		highlight += source.color * (pow(saturate(dot(normal, halfway)), 48) * specular * falloff * visible);
@@ -544,8 +561,13 @@ float4 PsSurface(SurfaceOut input) : SV_Target
 	normal *= dot(normal, eyePosition[EyeOf(input)].xyz - input.world) < 0 ? -1 : 1;
 	// A surface that wears a material carries it in the layer value (see MaterialLayerStep).
 	float layer = input.uvLayer.z;
+#if PLAIN_SURFACES
+	// The level has no materials, no floor map and no grit: none of that is looked up.
+	float material = -1;
+#else
 	float material = layer >= 8192 ? floor(layer / 8192) - 1 : -1;
 	layer -= (material + 1) * 8192;
+#endif
 	// Sampled unconditionally: texture lookups need derivatives, which a branch would not have.
 	bool textured = layer >= 0;
 	float3 uvLayer = float3(input.uvLayer.xy, max(layer, 0));
@@ -567,6 +589,10 @@ float4 PsSurface(SurfaceOut input) : SV_Target
 		texel = float4(modelTexel.rgb, 1);
 		bumped = normal;
 	}
+#if PLAIN_SURFACES
+	bool gritty = false;
+	float2 surfaceAt = 0;
+#else
 	// Materials are laid out by world position, so they run on across tiles: floors by x and z,
 	// walls by height and whichever of x and z they run along.
 	float3 facing = abs(normal);
@@ -628,6 +654,7 @@ float4 PsSurface(SurfaceOut input) : SV_Target
 	}
 	if (floorMapped && material < 0)
 		texel.rgb *= grime;
+#endif
 	// Lava and water: the picture keeps the palette index of the colours the game cycles, and they
 	// take the colour that index has this frame, so they flow as they do in the game.
 	uint cycling = (uint)(surfaceNormals.Load(int4(int2(saturate(crisp) * size * 0.9999), uvLayer.z, 0)).b * 255 + 0.5);

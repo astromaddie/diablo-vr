@@ -78,6 +78,6 @@ for level in ${LEVELS:-0 2}; do
 	kill -KILL "$game" 2> /dev/null || true
 	wait "$game" 2> /dev/null || true
 	cp "$data/run.log" "$shots/run.log"
-	grep -E 'VR:|err:|rror' "$shots/run.log" | cut -c1-240 | sort | uniq -c | sort -rn | head -30
+	grep -E 'VR:|err:|rror' "$shots/run.log" | grep -v 'VR: perf' | cut -c1-240 | sort | uniq -c | sort -rn | sed -n 1,30p || true
 done
 exit "$failed"
