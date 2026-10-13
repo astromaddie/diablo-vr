@@ -100,11 +100,12 @@ RUN set -eux; \
     make install; \
     rm -rf /tmp/*
 
-# Host testing: a virtual X server and Mesa's software Vulkan driver (lavapipe).
+# Host testing: a virtual X server and Mesa's software Vulkan driver (lavapipe), and ImageMagick
+# for screenshots of it.
 # libsdl2-dev is there for its headers only: dxvk-native's window system code compiles against
 # them and looks SDL2 up at run time, where it finds the one the game was built with.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        xvfb xauth mesa-vulkan-drivers libsdl2-dev \
+        xvfb xauth mesa-vulkan-drivers libsdl2-dev imagemagick \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
