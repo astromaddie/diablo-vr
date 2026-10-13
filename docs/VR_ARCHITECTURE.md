@@ -125,29 +125,52 @@ reads them from `vr-settings.env` in the data folder (`~/.local/share/DiabloVR`)
 `deploy.sh` installs once with the Frame's defaults (snap turn 30 degrees). `launch-once.env` and
 `launch-once.args` there apply to one launch and are deleted before the game starts. Added for
 the Frame: `DEVILUTIONX_VR_SNAP_TURN` (degrees) and `DEVILUTIONX_VR_EYE_SIZE` (eye image width in
-pixels, 0 for what the runtime recommends). There is no in-headset settings page.
+pixels, 0 for what the runtime recommends), `DEVILUTIONX_VR_MSAA=1` (no MSAA),
+`DEVILUTIONX_VR_WALL_SHADOW_STEPS` and `_SPACING`, `DEVILUTIONX_VR_ANISOTROPY`, and for tests
+`DEVILUTIONX_VR_FORCE_RENDER` and `DEVILUTIONX_VR_DIAG_YAW`. There is no in-headset settings
+page.
 
 `tools/steam_frame/unattended.sh` runs the benchmark or a short session over SSH. It refuses
 when another Steam title is running or the headset is not in standby.
 
 ## 8. Measurements on the Frame (2026-10-14)
 
-Dungeon level 2, both eyes at 1728x1728, 4x MSAA, `--vr-bench`, headset in standby:
+All from `unattended.sh bench` (`--vr-bench`: what a headset frame draws, both eyes at
+1728x1728, 20 seconds along a fixed path, no headset session, headset in standby). "Frames" is
+how many it drew in the 20 seconds and is the number to trust: with MSAA on, about 4 ms of each
+frame falls outside the GPU timers.
 
-| Run | Frames in 20 s | GPU p50 | Scene pass | Post |
-| --- | --- | --- | --- | --- |
-| First | 1000 | 14.6 ms | 12.1 ms | 2.6 ms |
-| Again, a few minutes later | 728 | 20.9 ms | 16.7 ms | 3.1 ms |
+The game is bound by the GPU. CPU time is 0.2 ms a frame.
 
-CPU time per frame was 0.2 ms, so the game is bound by the GPU, and the same settings gave
-different numbers minutes apart (the headset was warm, 66 to 74 C on its CPU sensors, with the
-GPU at its top frequency). Runs at 2x MSAA and at 2160x2160 came out slower still, in an order
-that makes no sense for the settings, so none of this ranks anything yet. It needs repeats with
-cool-down.
+**Where the time went**, dungeon level 2, as upstream draws it (4x MSAA): 885 frames (44 a
+second), GPU 17.1 ms.
 
-In a real session in Tristram, worn, the game ran at 42 to 43 fps on a 72 Hz display: GPU
-19 ms a frame (scene 15, post 3.2), 768,000 triangles in 250 draws. That is below Valve's floor
-of 72 fps and the next thing to fix.
+| Change | Frames in 20 s | GPU p50 |
+| --- | --- | --- |
+| 4x MSAA (the default) | 885 | 17.1 ms |
+| 2x MSAA | 998 | 14.5 ms |
+| MSAA off | 1425 | 12.8 ms |
+| MSAA off, surfaces without the unused material lookups | 2061 | 8.9 ms |
+| the same, wall shadows a sample per 0.4 tiles | 2148 | 8.5 ms |
+| the same, Turnip told to draw straight into memory (`TU_DEBUG=sysmem`) | 2258 | 7.6 ms |
+| the same settings at 2160x2160, without `sysmem` | 1709 | 10.8 ms |
+
+Found by swapping the surface shader for cut-down versions (`DEVILUTIONX_VR_SHADERS`): with
+only its first texture lookup the frame takes 4.8 ms, without lighting 8.5 ms, without wall
+shadows 8.9 ms. Things that made no difference worth having: 2x anisotropy instead of 8x,
+drawing each eye in its own pass, the lights-off debug view (it computes everything and picks
+at the end).
+
+**The town** is the heaviest place (768,000 triangles, sun shadows): 838 frames as upstream
+draws it (42 a second, the same as the worn session), 1425 with the Frame's settings (71 a
+second), measured before `sysmem` went into the launcher. A real session also skips the 15% of
+each eye image the lenses hide, which the benchmark draws.
+
+So the Frame's defaults are MSAA off, the wall shadow spacing and `sysmem`, and the title's
+SteamVR refresh rate is set to 72 Hz (`steam.app.3259726774.preferredRefreshRate`). The dungeon
+has room for 90 Hz; the town does not yet. Nobody has worn it with these settings.
+
+Start-up is quick: the session is running 2.5 seconds after launch.
 
 ## 9. Status
 
@@ -159,7 +182,8 @@ of 72 fps and the next thing to fix.
 | VR mode built for Linux ARM64 | done; package passes the ABI and allowlist gates |
 | Flat game from the package | boots to the main menu on the build machine; not started from Steam on the Frame |
 | VR mode on the Frame | ran for 75 s from SSH with the headset on someone's head by accident: tracked, stereo in one pass, depth layer and hidden-area mesh in use, Frame controller profile bound. Nobody has played it |
-| Frame rate | 42 fps at 72 Hz in town. Not acceptable yet |
+| Frame rate | Worn once at upstream's settings: 42 fps in town, juddery. With the Frame's settings the benchmark gives about 110 fps in the dungeon and 71 in town at 1728x1728. Not worn since |
+| Forced rendering for unattended eye dumps (`DEVILUTIONX_VR_FORCE_RENDER`) | built, not run: in standby the head is not tracked and the world is not drawn |
 | Started from the Steam library, controls, saves | not tried |
 | Standard system layer beyond View re-centre, focus-loss pause, settings page | not started |
 | Windows build after the binding change | not compiled |
