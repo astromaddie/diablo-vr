@@ -4,7 +4,7 @@
 #
 #   tools/steam_frame/unattended.sh guard
 #   tools/steam_frame/unattended.sh bench [--level N] [--repeat N] ["NAME=value NAME=value" ...]
-#   tools/steam_frame/unattended.sh session [--seconds N] [NAME=value ...]
+#   tools/steam_frame/unattended.sh session [--seconds N] [--no-dump] [NAME=value ...]
 #
 #   guard    says whether the Frame is free to use, and why not if it is not. Exit 0: free.
 #   bench    the VR mode's own benchmark (--vr-bench): what a headset frame draws, both eyes,
@@ -16,6 +16,8 @@
 #            takes it into a game, both eyes are saved every 150 frames, and the last pictures
 #            and the log come back to build-frame/session/. Nobody wearing it means no tracked
 #            head, so pass DEVILUTIONX_VR_FORCE_RENDER=1 to have the world drawn anyway.
+#            Saving the eyes stalls the game for some 45 ms each time: --no-dump when the
+#            frame pacing is what is being looked at.
 #
 # The headset is shared, and SteamVR runs one VR application at a time: starting ours ends
 # whatever else is running, in the face of whoever wears it. So every run first checks that no
@@ -104,7 +106,7 @@ bench)
 			reason="$(guard)" || die "stopping: $reason"
 			n=$((n + 1))
 			for setting in $config; do
-				[[ "$setting" =~ ^[A-Z][A-Z0-9_]*=[A-Za-z0-9._/-]*$ ]] || die "bad setting $setting"
+				[[ "$setting" =~ ^[A-Z][A-Z0-9_]*=[A-Za-z0-9._/,-]*$ ]] || die "bad setting $setting"
 			done
 			# The benchmark quits by itself; the timeout is for a build that hangs.
 			remote "
@@ -134,11 +136,13 @@ EOF
 session)
 	seconds=60
 	settings=()
+	dump='DEVILUTIONX_VR_DUMP=$d/vr-dumps'
 	while (($#)); do
 		case "$1" in
 		--seconds) seconds="${2:?}"; shift 2 ;;
+		--no-dump) dump=""; shift ;;
 		*)
-			[[ "$1" =~ ^[A-Z][A-Z0-9_]*=[A-Za-z0-9._/-]*$ ]] || die "bad setting $1"
+			[[ "$1" =~ ^[A-Z][A-Z0-9_]*=[A-Za-z0-9._/,-]*$ ]] || die "bad setting $1"
 			settings+=("$1")
 			shift
 			;;
@@ -153,15 +157,17 @@ session)
 		rm -rf \$d/vr-dumps && mkdir -p \$d/vr-dumps
 		had_save=\$(ls \$d/single_*.sv 2> /dev/null | wc -l)
 		cd ~/devkit-game/$title || exit 1
-		export XDG_RUNTIME_DIR=/run/user/\$(id -u) SDL_AUDIODRIVER=dummy DEVILUTIONX_VR_AUTOSTART=1 DEVILUTIONX_VR_DUMP=\$d/vr-dumps ${settings[*]:-}
+		export XDG_RUNTIME_DIR=/run/user/\$(id -u) SDL_AUDIODRIVER=dummy DEVILUTIONX_VR_AUTOSTART=1 $dump ${settings[*]:-}
 		timeout -s TERM $seconds ./LAUNCH-STEAM-FRAME.sh --vr -n --verbose > /dev/null 2>&1
 		# The hero the autostart made is not the user's.
 		[ \"\$had_save\" != 0 ] || rm -f \$d/single_*.sv
 		rm -f \$d/devilutionx_*.log
 	" || true
 	scp -q "${ssh_opts[@]}" "$frame:.local/share/DiabloVR/run.log" "$out/run.log" || die "no log came back"
-	scp -q "${ssh_opts[@]}" "$frame:.local/share/DiabloVR/vr-dumps/eye.bmp" "$out/eye0.bmp" || echo "no eye picture came back" >&2
-	scp -q "${ssh_opts[@]}" "$frame:.local/share/DiabloVR/vr-dumps/eye-right.bmp" "$out/eye1.bmp" 2> /dev/null || true
+	if [[ -n "$dump" ]]; then
+		scp -q "${ssh_opts[@]}" "$frame:.local/share/DiabloVR/vr-dumps/eye.bmp" "$out/eye0.bmp" || echo "no eye picture came back" >&2
+		scp -q "${ssh_opts[@]}" "$frame:.local/share/DiabloVR/vr-dumps/eye-right.bmp" "$out/eye1.bmp" 2> /dev/null || true
+	fi
 	remote "rm -rf $remote_data/vr-dumps"
 	grep -E 'VR: (eye|display period|controllers|first frame|session|xrEndFrame|refresh)|ERROR' "$out/run.log" | cut -c1-200 | sort | uniq -c | sort -rn | head -20
 	grep 'VR: perf' "$out/run.log" | tail -3 | cut -c1-200

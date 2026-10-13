@@ -28,15 +28,17 @@ bool RenderWorld(XrTime time, XrCompositionLayerProjectionView projectionViews[2
 	XrView views[2] = { { XR_TYPE_VIEW }, { XR_TYPE_VIEW } };
 	uint32_t viewCount = 0;
 	XrPosef head;
-	if (XR_FAILED(xrLocateViews(session, &locateInfo, &viewState, 2, &viewCount, views)) || viewCount != 2
-	    || (viewState.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT) == 0 || !Locate(viewSpace, time, head)) {
-		// Debug aid (DEVILUTIONX_VR_FORCE_RENDER=1): a headset nobody wears has no head to draw
-		// from, so one is made up, standing at the centre of the room and looking ahead, or
-		// turned by DEVILUTIONX_VR_DIAG_YAW degrees. The pictures can then be checked on a desk.
-		static const bool force = Knob("DEVILUTIONX_VR_FORCE_RENDER", 0) != 0;
+	// Debug aid (DEVILUTIONX_VR_FORCE_RENDER=1): a headset nobody wears is told not to render,
+	// and lies wherever it was put down. The world is drawn anyway, from a made-up head standing
+	// at the centre of the room and looking ahead, or turned by DEVILUTIONX_VR_DIAG_YAW degrees,
+	// so the pictures can be checked with the headset on a desk.
+	static const bool force = Knob("DEVILUTIONX_VR_FORCE_RENDER", 0) != 0;
+	const bool tracked = XR_SUCCEEDED(xrLocateViews(session, &locateInfo, &viewState, 2, &viewCount, views)) && viewCount == 2
+	    && (viewState.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT) != 0 && Locate(viewSpace, time, head);
+	if (!tracked || force) {
 		static bool logged;
-		if (!logged)
-			LogInfo("VR: the head is not tracked ({} views, state {:#x}), {}", viewCount, static_cast<unsigned>(viewState.viewStateFlags), force ? "drawing from a made-up one" : "the world is not drawn");
+		if (!logged && !tracked)
+			LogInfo("VR: the head is not tracked ({} views, state {:#x}){}", viewCount, static_cast<unsigned>(viewState.viewStateFlags), force ? "" : ", the world is not drawn");
 		logged = true;
 		if (!force)
 			return false;

@@ -238,6 +238,20 @@ bool VrSessionRunning()
 	return sessionRunning;
 }
 
+bool VrSkipsDesktopFrame()
+{
+	static const bool desktopWindow = Knob("DEVILUTIONX_VR_DESKTOP_WINDOW", 1) != 0;
+	if (desktopWindow || !sessionRunning || MirrorCaptureEnabled())
+		return false;
+	// Still a frame now and then, so that whatever watches the window sees it alive.
+	static Uint32 nextDesktopFrame;
+	if (SDL_TICKS_PASSED(SDL_GetTicks(), nextDesktopFrame)) {
+		nextDesktopFrame = SDL_GetTicks() + 1000;
+		return false;
+	}
+	return true;
+}
+
 bool VrShowsWorld()
 {
 	return sessionRunning && world3d;
@@ -322,7 +336,57 @@ void VrPresent(SDL_Surface *surface)
 
 	XrFrameState frameState { XR_TYPE_FRAME_STATE };
 	const auto lost = [](XrResult result) { return result == XR_ERROR_SESSION_LOST || result == XR_ERROR_INSTANCE_LOST; };
+	// Pacing, for the log: how long the game took to come back for the next frame, how long the
+	// runtime then made it wait, and how many display refreshes went by without a new frame.
+	static Uint64 frameEnded;
+	static Uint64 pacingSince = SDL_GetPerformanceCounter();
+	static XrTime lastDisplayTime;
+	static int pacedFrames;
+	static int missedFrames;
+	static double awayTotal;
+	static double awayLongest;
+	static double waitTotal;
+	const double perMs = 1000.0 / static_cast<double>(SDL_GetPerformanceFrequency());
+	const Uint64 waitStart = SDL_GetPerformanceCounter();
 	XrResult frameResult = xrWaitFrame(session, nullptr, &frameState);
+	if (XR_SUCCEEDED(frameResult)) {
+		const Uint64 waitEnd = SDL_GetPerformanceCounter();
+		static double lastAway;
+		static double lastWork;
+		static Uint64 lastWaitEnd;
+		double away = 0;
+		if (frameEnded != 0) {
+			away = static_cast<double>(waitStart - frameEnded) * perMs;
+			awayTotal += away;
+			awayLongest = std::max(awayLongest, away);
+		}
+		const double held = static_cast<double>(waitEnd - waitStart) * perMs;
+		waitTotal += held;
+		if (lastDisplayTime != 0 && frameState.predictedDisplayPeriod > 0) {
+			const auto steps = static_cast<int>(std::llround(static_cast<double>(frameState.predictedDisplayTime - lastDisplayTime) / static_cast<double>(frameState.predictedDisplayPeriod)));
+			if (steps > 1 && steps < 100) {
+				missedFrames += steps - 1;
+				// DEVILUTIONX_VR_DEBUG_PACING=1: what the frames around a miss looked like.
+				static const bool debugPacing = Knob("DEVILUTIONX_VR_DEBUG_PACING", 0) != 0;
+				static int reported;
+				if (debugPacing && reported++ < 40)
+					LogVerbose("VR: missed {}: frame before worked {:.2f} ms after waking, away {:.2f} ms before that; this one away {:.2f} ms, held {:.2f} ms", steps - 1, lastWork, lastAway, away, held);
+			}
+		}
+		lastAway = away;
+		lastWork = frameEnded != 0 && lastWaitEnd != 0 ? static_cast<double>(frameEnded - lastWaitEnd) * perMs : 0;
+		lastWaitEnd = waitEnd;
+		lastDisplayTime = frameState.predictedDisplayTime;
+		pacedFrames++;
+		const double seconds = static_cast<double>(waitEnd - pacingSince) * perMs / 1000.0;
+		if (seconds >= 10) {
+			LogVerbose("VR: pacing: {:.1f} fps on a {:.0f} Hz display, {} refreshes missed in {:.0f} s; the game is away {:.2f} ms a frame ({:.1f} at most), the runtime holds it {:.2f} ms",
+			    pacedFrames / seconds, 1e9 / static_cast<double>(frameState.predictedDisplayPeriod), missedFrames, seconds, awayTotal / pacedFrames, awayLongest, waitTotal / pacedFrames);
+			pacingSince = waitEnd;
+			pacedFrames = missedFrames = 0;
+			awayTotal = awayLongest = waitTotal = 0;
+		}
+	}
 	if (XR_SUCCEEDED(frameResult))
 		frameResult = xrd3d::BeginFrame(session);
 	if (XR_FAILED(frameResult)) {
@@ -439,6 +503,7 @@ void VrPresent(SDL_Surface *surface)
 	endInfo.layerCount = layerCount;
 	endInfo.layers = layers;
 	const XrResult result = xrd3d::EndFrame(session, endInfo);
+	frameEnded = SDL_GetPerformanceCounter();
 	static XrResult lastResult = XR_SUCCESS;
 	if (result != lastResult) {
 		LogInfo("VR: xrEndFrame -> {} ({} layer(s), {}x{})", static_cast<int>(result), layerCount, swapchainWidth, swapchainHeight);

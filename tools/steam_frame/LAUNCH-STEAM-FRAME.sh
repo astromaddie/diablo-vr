@@ -24,10 +24,6 @@ cd "$here"
 # The Frame runs gamescope with Xwayland on :0.
 export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-x11}"
 export DISPLAY="${DISPLAY:-:0}"
-# The Frame's Vulkan driver (Turnip) chooses per render pass between tiled rendering and
-# drawing straight into memory. The renderer's passes are few and large, and drawing straight
-# into memory measured 5 to 10 percent faster for them.
-export TU_DEBUG="${TU_DEBUG-sysmem}"
 
 data="${XDG_DATA_HOME:-$HOME/.local/share}/DiabloVR"
 mkdir -p "$data"
@@ -62,6 +58,25 @@ load_env "$data/vr-settings.env"
 once_env="$data/launch-once.env"
 load_env "$once_env"
 rm -f "$once_env"
+
+# Foveated rendering (DEVILUTIONX_VR_FOVEATION=lo, med or hi in vr-settings.env): the Frame's own
+# Vulkan layer draws the eye images at full density where the eyes look and coarser away from
+# there. It works on passes that draw one eye, so the renderer is told to draw the eyes one
+# after the other, and it needs the driver's tiled rendering.
+case "${DEVILUTIONX_VR_FOVEATION:-off}" in
+lo | med | hi)
+	export VK_INSTANCE_LAYERS="VK_LAYER_VALVE_fdm_injection${VK_INSTANCE_LAYERS:+:$VK_INSTANCE_LAYERS}"
+	export FDM_DEBUG="${FDM_DEBUG:-enable,$DEVILUTIONX_VR_FOVEATION}"
+	export DEVILUTIONX_VR_NO_SINGLE_PASS=1
+	applied+=("foveation=$DEVILUTIONX_VR_FOVEATION")
+	;;
+*)
+	# Without it: the Frame's Vulkan driver (Turnip) chooses per render pass between tiled
+	# rendering and drawing straight into memory. The renderer's passes are few and large, and
+	# drawing straight into memory measured 5 to 10 percent faster for them.
+	export TU_DEBUG="${TU_DEBUG-sysmem}"
+	;;
+esac
 
 {
 	echo "[launch] $(date -u +%Y-%m-%dT%H:%M:%SZ) $here/devilutionx $*${extra[*]:+ (once: ${extra[*]})}"

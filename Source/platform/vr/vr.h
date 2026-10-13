@@ -27,6 +27,13 @@ extern int VrBenchLevel;
 bool VrSessionRunning();
 
 /**
+ * Whether this frame is left out of the desktop window. With DEVILUTIONX_VR_DESKTOP_WINDOW=0 the
+ * window only gets a frame a second while the headset session runs: on a standalone headset
+ * nobody sees it, and drawing it costs time every frame.
+ */
+bool VrSkipsDesktopFrame();
+
+/**
  * Submits the frame to the headset and pumps controller input.
  * Blocks until the headset's next frame slot while a session is running,
  * which replaces the regular frame limiter.
