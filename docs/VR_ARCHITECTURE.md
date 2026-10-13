@@ -81,14 +81,85 @@ around them. On the Frame it:
 
 Nobody was wearing the headset, so this proves the route, not the picture in the lenses.
 
-## 5. Status
+## 5. What the game does with it
+
+Nothing about the VR mode's design changes on the Frame. For reference when working on it:
+
+- **Frame loop.** The game keeps its own 20 Hz logic tick on the wall clock and interpolates
+  between ticks itself. `VrPresent` is called from the game's present, where `xrWaitFrame` then
+  paces the loop. Views, hands and the screen placement use `predictedDisplayTime`; scene time,
+  particles and input steps use `SDL_GetTicks`.
+- **Layers.** One projection layer (two eye swapchains, plus two depth swapchains with
+  `XR_KHR_composition_layer_depth`), then the game's 2D frame as a quad, then sometimes a second
+  quad. The 2D frame is one more swapchain, filled from the CPU every frame.
+- **Renderer.** Both eyes in one pass (render-target array index from the vertex shader), into
+  app-owned 4x MSAA `R11G11B10_FLOAT` targets, resolved by a shader, bloom, then a final pass
+  into the runtime's images. The hidden-area mesh is used when the runtime gives one.
+- **Without a headset.** `DEVILUTIONX_VR_OFFSCREEN=<dir>` draws levels to pictures and
+  `--vr-bench <level>` times what a headset frame draws, both with a plain D3D11 device and no
+  OpenXR. `build.sh render` runs the first on lavapipe on the build machine, and
+  `unattended.sh bench` the second on the Frame.
+
+## 6. Controls on the Frame
+
+The Frame's controllers are a gamepad split over two hands, and the VR mode already feeds the
+game through a virtual gamepad, so the Frame profile
+(`/interaction_profiles/valve/frame_controller_valve`) is the Touch map with these differences:
+
+| Input | What it does |
+| --- | --- |
+| A, B, X, Y (all on the right hand) | What the same letters do on Touch: primary, secondary, character, inventory |
+| Menu (right) | Game menu |
+| View (left) | The gamepad's Select. Held for a second: re-centre, with a buzz in both hands |
+| Left / right bumper | Health / mana potion from the belt, as on a gamepad. The right stick's up and down no longer drink potions on the Frame |
+| D-pad | The gamepad's D-pad wherever the game shows its own interface (menus, inventory, shops). Does nothing out in the world |
+
+Sticks, triggers, grips and motion are unchanged. This map has not been worn or approved yet.
+`tools/steam_frame/tests/check_bindings.py` checks the binding tables against each profile's
+component list.
+
+## 7. Settings and diagnostics
+
+The VR mode is tuned with `DEVILUTIONX_VR_*` environment variables. On the Frame the launcher
+reads them from `vr-settings.env` in the data folder (`~/.local/share/DiabloVR`), which
+`deploy.sh` installs once with the Frame's defaults (snap turn 30 degrees). `launch-once.env` and
+`launch-once.args` there apply to one launch and are deleted before the game starts. Added for
+the Frame: `DEVILUTIONX_VR_SNAP_TURN` (degrees) and `DEVILUTIONX_VR_EYE_SIZE` (eye image width in
+pixels, 0 for what the runtime recommends). There is no in-headset settings page.
+
+`tools/steam_frame/unattended.sh` runs the benchmark or a short session over SSH. It refuses
+when another Steam title is running or the headset is not in standby.
+
+## 8. Measurements on the Frame (2026-10-14)
+
+Dungeon level 2, both eyes at 1728x1728, 4x MSAA, `--vr-bench`, headset in standby:
+
+| Run | Frames in 20 s | GPU p50 | Scene pass | Post |
+| --- | --- | --- | --- | --- |
+| First | 1000 | 14.6 ms | 12.1 ms | 2.6 ms |
+| Again, a few minutes later | 728 | 20.9 ms | 16.7 ms | 3.1 ms |
+
+CPU time per frame was 0.2 ms, so the game is bound by the GPU, and the same settings gave
+different numbers minutes apart (the headset was warm, 66 to 74 C on its CPU sensors, with the
+GPU at its top frequency). Runs at 2x MSAA and at 2160x2160 came out slower still, in an order
+that makes no sense for the settings, so none of this ranks anything yet. It needs repeats with
+cool-down.
+
+In a real session in Tristram, worn, the game ran at 42 to 43 fps on a 72 Hz display: GPU
+19 ms a frame (scene 15, post 3.2), 768,000 triangles in 250 draws. That is below Valve's floor
+of 72 fps and the next thing to fix.
+
+## 9. Status
 
 | Item | State |
 | --- | --- |
 | Toolchain image, dxvk-native and vkd3d builds | done |
-| OpenXR session and swapchains through DXVK | verified unattended on the Frame (probe) |
-| HLSL through vkd3d | all 17 entry points compile; rendering not compared yet |
-| VR mode built for Linux | not started |
-| Flat game on the Frame from a Steam title | not started |
-| Frame controller bindings, standard system layer, settings | not started |
-| Played in the headset | nothing yet |
+| OpenXR session and swapchains through DXVK | verified unattended on the Frame (probe), and in the game |
+| HLSL through vkd3d | all 17 entry points compile; the town drawn on lavapipe matches the author's screenshots |
+| VR mode built for Linux ARM64 | done; package passes the ABI and allowlist gates |
+| Flat game from the package | boots to the main menu on the build machine; not started from Steam on the Frame |
+| VR mode on the Frame | ran for 75 s from SSH with the headset on someone's head by accident: tracked, stereo in one pass, depth layer and hidden-area mesh in use, Frame controller profile bound. Nobody has played it |
+| Frame rate | 42 fps at 72 Hz in town. Not acceptable yet |
+| Started from the Steam library, controls, saves | not tried |
+| Standard system layer beyond View re-centre, focus-loss pause, settings page | not started |
+| Windows build after the binding change | not compiled |

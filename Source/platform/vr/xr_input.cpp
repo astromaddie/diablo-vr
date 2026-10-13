@@ -134,6 +134,8 @@ bool panelCharacterDown;
 const float SeatedRaise = Knob("DEVILUTIONX_VR_SEATED", 0) != 0 ? Knob("DEVILUTIONX_VR_SEATED_RAISE", 0.45F) : 0.F;
 /** 1: the right stick turns smoothly instead of in 45 degree steps. */
 const bool SmoothTurn = Knob("DEVILUTIONX_VR_SMOOTH_TURN", 0) != 0;
+/** Degrees of one snap turn. */
+const float SnapTurnAngle = Knob("DEVILUTIONX_VR_SNAP_TURN", 45) * 0.0174533F;
 /** Radians per second of a smooth turn at full deflection. */
 const float SmoothTurnSpeed = Knob("DEVILUTIONX_VR_SMOOTH_TURN_SPEED", 2.0F);
 /** How dark the edge of view gets while moving or turning smoothly (0 turns the vignette off). */
@@ -1109,7 +1111,7 @@ void UpdateInput(XrTime time, float screenHeight)
 		} else {
 			const bool turn = std::fabs(rightStick.x) > 0.7F;
 			if (turn && !turnHeld)
-				turnYaw += rightStick.x > 0 ? -SnapTurn : SnapTurn;
+				turnYaw += rightStick.x > 0 ? -SnapTurnAngle : SnapTurnAngle;
 			turnHeld = turn;
 		}
 		// With bumpers for the potions the stick is left to turning: a potion is not something

@@ -129,6 +129,18 @@ if [[ -n "$data_file" ]]; then
 	fi
 fi
 
+# The Frame's default settings of the VR mode, once. A file that is already there is the user's.
+if [[ -d "$package/vrassets" ]]; then
+	echo "== settings"
+	remote "mkdir -p ~/$data_dir" || die "could not create ~/$data_dir on the Frame"
+	if remote "test -e ~/$data_dir/vr-settings.env"; then
+		echo "vr-settings.env is already on the Frame, left alone"
+	else
+		rsync "${rsync_opts[@]}" "$root/tools/steam_frame/vr-settings.env" "$frame:$data_dir/vr-settings.env" || die "rsync of vr-settings.env failed"
+		echo "copied the default vr-settings.env"
+	fi
+fi
+
 if ((register)); then
 	echo "== registering $title"
 	# The devkit service's own shortcut tool, as the other native Frame ports use it.

@@ -9,9 +9,13 @@
 #
 # run.log holds the output of this launch, run.prev.log the one before.
 #
-# For a test run with other arguments, put them in launch-once.args in the data folder. They are
-# added to the command line, and the file is deleted before the game starts, so the next normal
-# launch does not get them.
+# The VR mode is tuned with DEVILUTIONX_VR_* environment variables (the README lists them).
+# vr-settings.env in the data folder holds the ones to keep, one NAME=value a line; deploy.sh
+# puts the Frame's defaults there once and never overwrites the file.
+#
+# For a test run with other arguments or settings, put them in launch-once.args (arguments) or
+# launch-once.env (NAME=value lines) in the data folder. They are used for one launch: the files
+# are deleted before the game starts, so the next normal launch does not get them.
 set -euo pipefail
 
 here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -39,9 +43,26 @@ if [[ -f "$once" ]]; then
 	rm -f "$once"
 fi
 
+# NAME=value lines, DEVILUTIONX_VR_ names only: nothing else gets into the environment this way.
+load_env() {
+	local line
+	[[ -f "$1" ]] || return 0
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		[[ "$line" =~ ^(DEVILUTIONX_VR_[A-Z0-9_]+)=(.*)$ ]] || continue
+		export "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
+		applied+=("${BASH_REMATCH[1]}=${BASH_REMATCH[2]}")
+	done < "$1"
+}
+applied=()
+load_env "$data/vr-settings.env"
+once_env="$data/launch-once.env"
+load_env "$once_env"
+rm -f "$once_env"
+
 {
 	echo "[launch] $(date -u +%Y-%m-%dT%H:%M:%SZ) $here/devilutionx $*${extra[*]:+ (once: ${extra[*]})}"
 	echo "[launch] data dir $data"
+	echo "[launch] settings: ${applied[*]:-none}"
 	[[ -e "$data/DIABDAT.MPQ" || -e "$data/diabdat.mpq" ]] || echo "[launch] no DIABDAT.MPQ in $data"
 } > "$log"
 

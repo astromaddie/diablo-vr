@@ -285,7 +285,17 @@ bool CreateEyeTargets()
 		EyeTarget &eye = eyes[i];
 		eye.width = static_cast<int>(configViews[i].recommendedImageRectWidth);
 		eye.height = static_cast<int>(configViews[i].recommendedImageRectHeight);
-		LogInfo("VR: eye {} target {}x{}", i, eye.width, eye.height);
+		// DEVILUTIONX_VR_EYE_SIZE=<pixels>: the width of the eye images, whatever the runtime
+		// recommends. A standalone headset recommends fewer pixels than its panels have, and
+		// what it recommends moves with its per-application settings, so this is a size and
+		// not a factor.
+		static const float eyeSize = Knob("DEVILUTIONX_VR_EYE_SIZE", 0);
+		if (eyeSize > 0) {
+			const float scale = eyeSize / static_cast<float>(eye.width);
+			eye.width = std::min(static_cast<int>(eyeSize), static_cast<int>(configViews[i].maxImageRectWidth));
+			eye.height = std::min(static_cast<int>(std::lround(static_cast<float>(eye.height) * scale)), static_cast<int>(configViews[i].maxImageRectHeight));
+		}
+		LogInfo("VR: eye {} target {}x{} (recommended {}x{})", i, eye.width, eye.height, configViews[i].recommendedImageRectWidth, configViews[i].recommendedImageRectHeight);
 		XrSwapchainCreateInfo info { XR_TYPE_SWAPCHAIN_CREATE_INFO };
 		info.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
 		info.format = swapchainFormat;
