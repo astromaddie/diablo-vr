@@ -254,6 +254,16 @@ void VrPresent(SDL_Surface *surface)
 		static Uint32 nextTap;
 		static bool returnDown;
 		if (SDL_TICKS_PASSED(SDL_GetTicks(), nextTap)) {
+			// With no saved hero the way into a game stops at the new hero's name, which
+			// Return alone does not get past. Typed text goes nowhere in the other menus.
+			if (!returnDown) {
+				SDL_Event text;
+				SDL_zero(text);
+				text.type = SDL_TEXTINPUT;
+				text.text.windowID = SDL_GetWindowID(ghMainWnd);
+				SDL_strlcpy(text.text.text, "V", sizeof(text.text.text));
+				SDL_PushEvent(&text);
+			}
 			SetKey(returnDown, !returnDown, SDLK_RETURN);
 			nextTap = SDL_GetTicks() + 600;
 		}

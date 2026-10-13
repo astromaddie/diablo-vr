@@ -17,6 +17,9 @@
 #   smoke    not in the default list. Runs the package under Xvfb with the user's DIABDAT.MPQ
 #            mounted read-only (DIABDAT=path, default ~/Downloads/DIABDAT.MPQ), waits for the
 #            main menu, saves build-frame/smoke/menu.png and checks that SIGTERM ends the game
+#   render   not in the default list. Needs a VR=ON package. Draws real levels with the VR mode's
+#            headset-free renderer on lavapipe (software Vulkan) and leaves the pictures in
+#            build-frame/render/level<N>/. LEVELS="0 2" picks them: 0 is the town
 #
 # Set VR=ON for the game and package steps alike. The default is OFF.
 #
@@ -51,7 +54,8 @@ step_dxvk() {
 	done
 	in_container "
 		cd $out/dxvk-src
-		[ -f /src/$out/dxvk-build/build.ninja ] || meson setup --buildtype release --strip --prefix /src/$out/dxvk-install --libdir lib \
+		# libdxvk_d3d11 needs libdxvk_dxgi, and has to find it beside itself in the package.
+		[ -f /src/$out/dxvk-build/build.ninja ] || LDFLAGS='-Wl,-rpath,\$ORIGIN' meson setup --buildtype release --strip --prefix /src/$out/dxvk-install --libdir lib \
 			-Denable_dxgi=true -Denable_d3d11=true -Denable_d3d8=false -Denable_d3d9=false -Denable_d3d10=false \
 			-Dnative_sdl2=enabled -Dnative_sdl3=disabled -Dnative_glfw=disabled -Dbuild_id=false \
 			--force-fallback-for=libdisplay-info /src/$out/dxvk-build
@@ -178,10 +182,20 @@ step_smoke() {
 	docker run --rm -v "$repo":/src -v "$data":/diabdat/DIABDAT.MPQ:ro -w /src "$image" bash /src/tools/steam_frame/smoke-in-container.sh
 }
 
+# Draws real levels with the VR mode's headset-free renderer on software Vulkan and leaves the
+# pictures in build-frame/render/. Needs a package built with VR=ON. LEVELS="0 2" picks the levels.
+step_render() {
+	local data="${DIABDAT:-$HOME/Downloads/DIABDAT.MPQ}"
+	[ -f "$data" ] || { echo "no DIABDAT.MPQ at $data (set DIABDAT=)" >&2; exit 1; }
+	[ -x "$repo/$out/package/DiabloVR/devilutionx" ] || { echo "no package: run the package step first" >&2; exit 1; }
+	docker run --rm -v "$repo":/src -v "$data":/diabdat/DIABDAT.MPQ:ro -w /src \
+		-e LEVELS="${LEVELS:-0 2}" -e RENDER_TIMEOUT="${RENDER_TIMEOUT:-600}" "$image" bash /src/tools/steam_frame/render-in-container.sh
+}
+
 [ $# -gt 0 ] || set -- image dxvk game package
 for step in "$@"; do
 	case "$step" in
-	image | dxvk | probe | game | package | smoke)"step_$step" ;;
+	image | dxvk | probe | game | package | smoke | render) "step_$step" ;;
 	*)
 		echo "unknown step: $step" >&2
 		exit 1
