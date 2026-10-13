@@ -19,6 +19,7 @@ ALLOWED = [
     r"devilutionx",
     r"devilutionx\.mpq",                  # the game's own assets, when smpq built them
     r"assets/[A-Za-z0-9_.+ /-]+",         # the game's own assets, loose
+    r"mods/hf/[A-Za-z0-9_.+ /-]+",        # the game's own Hellfire mod, loose (needs the user's hellfire.mpq)
     r"lib/[A-Za-z0-9_.+-]+\.so(\.[0-9]+)*",
     r"LAUNCH-STEAM-FRAME\.sh",
     r"BUILD-METADATA\.json",
@@ -27,8 +28,8 @@ VR_ALLOWED = [
     r"vrassets/[A-Za-z0-9_.+ /-]+",
 ]
 
-# Directories the package may have. assets/ and vrassets/ may have subfolders.
-DIRS = [r"lib", r"assets(/[A-Za-z0-9_.+ -]+)*"]
+# Directories the package may have. assets/, mods/hf/ and vrassets/ may have subfolders.
+DIRS = [r"lib", r"assets(/[A-Za-z0-9_.+ -]+)*", r"mods", r"mods/hf(/[A-Za-z0-9_.+ -]+)*"]
 VR_DIRS = [r"vrassets(/[A-Za-z0-9_.+ -]+)*"]
 
 # Named in the error message when a file looks like something that must never travel in the package.

@@ -129,6 +129,8 @@ step_package() {
 		# The game looks for assets/ (or devilutionx.mpq) beside the executable. Without smpq
 		# the build leaves them loose in assets/, as the Windows build does.
 		if [ -f $out/game/devilutionx.mpq ]; then cp $out/game/devilutionx.mpq \$pkg/; else cp -R $out/game/assets \$pkg/assets; fi
+		# The Hellfire mod is found as mods/hf/ in the working directory, which the launcher sets.
+		cp -R $out/game/mods \$pkg/mods
 		cp tools/steam_frame/LAUNCH-STEAM-FRAME.sh \$pkg/
 		if [ '${VR:-OFF}' = ON ]; then
 			for lib in libdxvk_d3d11.so.0 libdxvk_dxgi.so.0; do

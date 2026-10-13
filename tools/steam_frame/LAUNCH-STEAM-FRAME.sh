@@ -29,9 +29,10 @@ log="$data/run.log"
 
 once="$data/launch-once.args"
 extra=()
+skip='^[[:space:]]*(#|$)' # blank lines and comments
 if [[ -f "$once" ]]; then
 	while IFS= read -r line || [[ -n "$line" ]]; do
-		[[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+		[[ "$line" =~ $skip ]] && continue
 		read -r -a words <<< "$line"
 		extra+=("${words[@]}")
 	done < "$once"

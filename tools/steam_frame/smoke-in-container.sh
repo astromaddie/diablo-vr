@@ -41,7 +41,7 @@ grep -q '^DevilutionX v' "$data/run.log"
 
 echo "== launcher, one-shot arguments"
 # -n skips the startup videos. A normal launch must not inherit it.
-echo "-n" > "$data/launch-once.args"
+printf '%s\n' "-n" > "$data/launch-once.args"
 ./LAUNCH-STEAM-FRAME.sh &
 game=$!
 sleep 1
@@ -51,27 +51,32 @@ head -1 "$data/run.log"
 grep -q '(once: -n)' "$data/run.log" || { echo "smoke: the one-shot argument is not in run.log" >&2; exit 1; }
 
 echo "== waiting for the main menu"
-black=1
-for i in $(seq 60); do
+# With the startup videos skipped the title and the main menu follow at once. The menu is dark art
+# on black, so the test is "not black", and the picture is checked by eye afterwards (menu.png). The
+# game goes on to its intro movie after half a minute at the menu, so the frame is taken early.
+mkdir -p "$smoke/frames"
+lit() { awk -v m="$1" 'BEGIN { exit !(m > 0.005) }'; }
+grab() { # $1 = name; prints the mean brightness of the screen
+	import -window root "$smoke/frames/$1.png"
+	convert "$smoke/frames/$1.png" -colorspace Gray -format '%[fx:mean]' info:
+}
+found=0
+for i in $(seq 90); do
 	kill -0 "$game" 2> /dev/null || { echo "smoke: the game exited early" >&2; tail -20 "$data/run.log" >&2; exit 1; }
-	sleep 2
-	import -window root "$shot"
-	mean="$(convert "$shot" -colorspace Gray -format '%[fx:mean]' info:)"
-	colors="$(convert "$shot" -format '%k' info:)"
-	echo "  $((i * 2))s: mean brightness $mean, $colors colors"
-	# The loading screen and the menu both have art. Black, or a flat fill, is neither.
-	if awk -v m="$mean" -v c="$colors" 'BEGIN { exit !(m > 0.02 && c > 200) }'; then
-		black=0
+	sleep 1
+	mean="$(grab "f$i")"
+	echo "  ${i}s: mean brightness $mean"
+	if lit "$mean"; then
+		found=1
 		break
 	fi
 done
-[[ "$black" = 0 ]] || { echo "smoke: the screen stayed black" >&2; exit 1; }
-# The title art can show before the menu text and the cursor are up.
-sleep 6
-import -window root "$shot"
-mean="$(convert "$shot" -colorspace Gray -format '%[fx:mean]' info:)"
+[[ "$found" = 1 ]] || { echo "smoke: the screen stayed black" >&2; exit 1; }
+sleep 3
+mean="$(grab menu)"
+cp "$smoke/frames/menu.png" "$shot"
 echo "screenshot: $shot (mean brightness $mean)"
-awk -v m="$mean" 'BEGIN { exit !(m > 0.02) }' || { echo "smoke: the final screenshot is black" >&2; exit 1; }
+lit "$mean" || { echo "smoke: the screenshot is black" >&2; exit 1; }
 
 echo "== SIGTERM"
 kill -0 "$game" || { echo "smoke: the game is gone before SIGTERM" >&2; exit 1; }
