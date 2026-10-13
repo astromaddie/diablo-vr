@@ -99,8 +99,13 @@ time_t shaderFileTime;
 
 time_t FileTime(const std::string &path)
 {
+#ifdef _WIN32
 	struct _stat info;
 	return _stat(path.c_str(), &info) == 0 ? info.st_mtime : 0;
+#else
+	struct stat info;
+	return stat(path.c_str(), &info) == 0 ? info.st_mtime : 0;
+#endif
 }
 
 bool CompileShaders()

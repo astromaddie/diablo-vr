@@ -314,7 +314,7 @@ void VrPresent(SDL_Surface *surface)
 	const auto lost = [](XrResult result) { return result == XR_ERROR_SESSION_LOST || result == XR_ERROR_INSTANCE_LOST; };
 	XrResult frameResult = xrWaitFrame(session, nullptr, &frameState);
 	if (XR_SUCCEEDED(frameResult))
-		frameResult = xrBeginFrame(session, nullptr);
+		frameResult = xrd3d::BeginFrame(session);
 	if (XR_FAILED(frameResult)) {
 		if (lost(frameResult))
 			SessionLost("frame call failed");
@@ -419,7 +419,7 @@ void VrPresent(SDL_Surface *surface)
 	endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
 	endInfo.layerCount = layerCount;
 	endInfo.layers = layers;
-	const XrResult result = xrEndFrame(session, &endInfo);
+	const XrResult result = xrd3d::EndFrame(session, endInfo);
 	static XrResult lastResult = XR_SUCCESS;
 	if (result != lastResult) {
 		LogInfo("VR: xrEndFrame -> {} ({} layer(s), {}x{})", static_cast<int>(result), layerCount, swapchainWidth, swapchainHeight);

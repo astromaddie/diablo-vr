@@ -13,9 +13,30 @@
 namespace Microsoft {
 namespace WRL {
 
+/** What `&ptr` gives: the address to receive an interface into, or the address of the ComPtr itself. */
+template <typename Ptr>
+class ComPtrRef {
+public:
+	explicit ComPtrRef(Ptr *ptr)
+	    : ptr_(ptr)
+	{
+	}
+
+	operator Ptr *() const { return ptr_; }
+	/** An out parameter: what is held is released first. */
+	operator typename Ptr::InterfaceType **() const { return ptr_->ReleaseAndGetAddressOf(); }
+	operator void **() const { return reinterpret_cast<void **>(ptr_->ReleaseAndGetAddressOf()); }
+	typename Ptr::InterfaceType *operator*() const { return ptr_->Get(); }
+
+private:
+	Ptr *ptr_;
+};
+
 template <typename T>
 class ComPtr {
 public:
+	using InterfaceType = T;
+
 	ComPtr() = default;
 	ComPtr(std::nullptr_t) { }
 	ComPtr(T *other)
@@ -66,8 +87,7 @@ public:
 		Reset();
 		return &ptr_;
 	}
-	/** As in WRL, taking the address releases what is held: `&ptr` is an out parameter. */
-	T **operator&() { return ReleaseAndGetAddressOf(); }
+	ComPtrRef<ComPtr> operator&() { return ComPtrRef<ComPtr>(this); }
 
 	unsigned long Reset()
 	{
@@ -86,6 +106,11 @@ public:
 	HRESULT As(ComPtr<U> *other) const
 	{
 		return ptr_->QueryInterface(__uuidof(U), reinterpret_cast<void **>(other->ReleaseAndGetAddressOf()));
+	}
+	template <typename U>
+	HRESULT As(ComPtrRef<ComPtr<U>> other) const
+	{
+		return ptr_->QueryInterface(__uuidof(U), static_cast<void **>(other));
 	}
 	HRESULT CopyTo(T **other) const
 	{

@@ -12,18 +12,20 @@
 #include <cstdint>
 #include <vector>
 
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
+#endif
 #include <d3d11.h>
 #include <dxgi.h>
+#ifdef _WIN32
 #include <windows.h>
 
 #define XR_USE_PLATFORM_WIN32
-#define XR_USE_GRAPHICS_API_D3D11
-#include <openxr/openxr.h>
-#include <openxr/openxr_platform.h>
+#endif
 
 #include "platform/vr/knob.h"
+#include "platform/vr/xr_d3d11.h"
 
 namespace devilution {
 namespace vr {
@@ -55,7 +57,7 @@ enum class State : uint8_t {
 
 struct EyeTarget {
 	XrSwapchain swapchain;
-	std::vector<XrSwapchainImageD3D11KHR> images;
+	std::vector<ID3D11Texture2D *> images;
 	std::vector<ID3D11RenderTargetView *> views;
 	int width;
 	int height;
@@ -80,7 +82,7 @@ extern XrSpace viewSpace;
 extern ID3D11Device *device;
 extern ID3D11DeviceContext *context;
 extern XrSwapchain swapchain;
-extern std::vector<XrSwapchainImageD3D11KHR> swapchainImages;
+extern std::vector<ID3D11Texture2D *> swapchainImages;
 extern int swapchainWidth;
 extern int swapchainHeight;
 extern int64_t swapchainFormat;

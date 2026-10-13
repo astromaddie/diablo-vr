@@ -11,7 +11,7 @@ covers what the Frame build adds or changes. Everything it adds is behind the sa
 | --- | --- |
 | Device | Steam Frame, SteamOS `vr`, SteamVR OpenXR 2.18.2, Adreno 750 on Turnip (Mesa 26.2.99, Vulkan 1.4) |
 | Package route | Linux ARM64 ELF, Steam compat tool `SteamLinuxRuntime_4-arm64`, devkit title `DiabloVR` |
-| Build | `tools/steam_frame/build.sh`, in the Docker image from `tools/steam_frame/docker/linux.Dockerfile` (Ubuntu 22.04, gcc-12, glibc 2.35 floor) |
+| Build | `tools/steam_frame/build.sh`, in the Docker image from `tools/steam_frame/docker/linux.Dockerfile` (Ubuntu 24.04, gcc 13; needs glibc 2.39 and GLIBCXX 3.4.32 at most) |
 | Renderer route | The Direct3D 11 renderer is kept and runs on dxvk-native 3.1.1 (D3D11 to Vulkan). Section 2 |
 | Shaders | Still HLSL compiled at start-up, by vkd3d 2.1's compiler behind our own `D3DCompile`. Section 2 |
 | OpenXR binding | `XR_KHR_vulkan_enable` with DXVK's Vulkan device, the runtime's swapchain images wrapped as D3D11 textures. Section 3 |

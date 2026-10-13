@@ -30,6 +30,10 @@ void (*log)(const char *message);
 
 namespace {
 
+// DXVK has no default window system off Windows and refuses to make a device without one. Set
+// when the program starts, so it also holds for devices made elsewhere (the offscreen renderer).
+[[maybe_unused]] const int wsiDriverSet = setenv("DXVK_WSI_DRIVER", "SDL2", 0);
+
 IDXGIVkInteropDevice1 *interop;
 
 struct Swapchain {
@@ -143,8 +147,6 @@ bool CreateDevice(XrInstance instance, XrSystemId systemId, ID3D11Device **devic
 		return false;
 	setenv("DXVK_OPENXR_INSTANCE_EXTENSIONS", instanceExtensions.c_str(), 1);
 	setenv("DXVK_OPENXR_DEVICE_EXTENSIONS", deviceExtensions.c_str(), 1);
-	// It has no default window system off Windows, and refuses to start without one.
-	setenv("DXVK_WSI_DRIVER", "SDL2", 0);
 
 	IDXGIFactory1 *factory = nullptr;
 	if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void **>(&factory)))) {

@@ -48,24 +48,20 @@ bool RenderWorld(XrTime time, XrCompositionLayerProjectionView projectionViews[2
 	VrView eyeViews[2];
 	VrViewTarget targets[2] {};
 	uint32_t imageIndex[2] = {};
-	XrSwapchainImageAcquireInfo acquireInfo { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
-	XrSwapchainImageWaitInfo waitInfo { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
-	waitInfo.timeout = XR_INFINITE_DURATION;
-	XrSwapchainImageReleaseInfo releaseInfo { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
 	int acquired = 0;
 	for (; acquired < 2; acquired++) {
 		EyeTarget &eye = eyes[acquired];
-		if (XR_FAILED(xrAcquireSwapchainImage(eye.swapchain, &acquireInfo, &imageIndex[acquired])))
+		if (XR_FAILED(xrd3d::AcquireSwapchainImage(eye.swapchain, &imageIndex[acquired])))
 			break;
-		xrWaitSwapchainImage(eye.swapchain, &waitInfo);
+		xrd3d::WaitSwapchainImage(eye.swapchain);
 		targets[acquired].color = eye.views[imageIndex[acquired]];
 		if (eye.depthSwapchain != XR_NULL_HANDLE) {
 			uint32_t depthIndex = 0;
-			if (XR_FAILED(xrAcquireSwapchainImage(eye.depthSwapchain, &acquireInfo, &depthIndex))) {
-				xrReleaseSwapchainImage(eye.swapchain, &releaseInfo);
+			if (XR_FAILED(xrd3d::AcquireSwapchainImage(eye.depthSwapchain, &depthIndex))) {
+				xrd3d::ReleaseSwapchainImage(eye.swapchain);
 				break;
 			}
-			xrWaitSwapchainImage(eye.depthSwapchain, &waitInfo);
+			xrd3d::WaitSwapchainImage(eye.depthSwapchain);
 			targets[acquired].depth = eye.depthViews[depthIndex];
 		}
 		targets[acquired].maskVertices = eye.maskVertices;
@@ -83,25 +79,25 @@ bool RenderWorld(XrTime time, XrCompositionLayerProjectionView projectionViews[2
 		RenderMirror();
 		if (screenshotRequested) {
 			screenshotRequested = false;
-			SaveScreenshot(eyes[0].images[imageIndex[0]].texture);
+			SaveScreenshot(eyes[0].images[imageIndex[0]]);
 		}
 
 		static const std::string dumpDirectory = SDL_getenv("DEVILUTIONX_VR_DUMP") != nullptr ? SDL_getenv("DEVILUTIONX_VR_DUMP") : "";
 		static int frameCounter;
 		if (!dumpDirectory.empty() && ++frameCounter % 150 == 0)
-			DumpTexture(eyes[0].images[imageIndex[0]].texture, (dumpDirectory + "\\eye.bmp").c_str());
+			DumpTexture(eyes[0].images[imageIndex[0]], (dumpDirectory + "/eye.bmp").c_str());
 	}
 
 	for (int i = 0; i < acquired; i++) {
 		EyeTarget &eye = eyes[i];
-		xrReleaseSwapchainImage(eye.swapchain, &releaseInfo);
+		xrd3d::ReleaseSwapchainImage(eye.swapchain);
 		projectionViews[i] = { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW };
 		projectionViews[i].pose = views[i].pose;
 		projectionViews[i].fov = views[i].fov;
 		projectionViews[i].subImage.swapchain = eye.swapchain;
 		projectionViews[i].subImage.imageRect.extent = { eye.width, eye.height };
 		if (eye.depthSwapchain != XR_NULL_HANDLE) {
-			xrReleaseSwapchainImage(eye.depthSwapchain, &releaseInfo);
+			xrd3d::ReleaseSwapchainImage(eye.depthSwapchain);
 			// The compositor reprojects with real depth instead of assuming everything is far away.
 			// Depth is reversed (1 at the near plane), which OpenXR expresses by swapping the two distances.
 			depthInfos[i] = { XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR };
