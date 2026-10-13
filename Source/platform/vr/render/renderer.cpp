@@ -79,14 +79,20 @@ const bool NearestFirst = Knob("DEVILUTIONX_VR_NEAREST_FIRST", 1) != 0;
 const bool Bloom = Knob("DEVILUTIONX_VR_BLOOM", 1) != 0;
 /** Filtered comparisons a pixel makes against the sun's shadow map: 9, 4 or 1. */
 const int SunShadowTaps = static_cast<int>(Knob("DEVILUTIONX_VR_SUN_SHADOW_TAPS", 9));
+/**
+ * 1: levels without materials are drawn depth first, by a shader that only cuts the art's holes,
+ * and then shaded where they are seen. Worth it where much is hidden behind cut-out walls (the
+ * caves). Only without MSAA, where a cut-out has no smoothed edge to lose.
+ */
+const bool DepthPrepass = Knob("DEVILUTIONX_VR_DEPTH_PREPASS", 0) != 0 && Samples == 1;
 const int Anisotropy = std::clamp(static_cast<int>(Knob("DEVILUTIONX_VR_ANISOTROPY", 8)), 1, 16);
 
 ComPtr<ID3D11VertexShader> vsCarved, vsMesh, vsMeshShadow, vsSprite, vsParticle, vsFullscreen, vsPanel, vsMask;
-ComPtr<ID3D11PixelShader> psCarved, psSurface, psSurfacePlain, psSprite, psParticle, psResolve, psBloomDown, psBloomUp, psFinal, psPanel;
+ComPtr<ID3D11PixelShader> psCarved, psSurface, psSurfacePlain, psSurfaceDepth, psSurfaceSeen, psSprite, psParticle, psResolve, psBloomDown, psBloomUp, psFinal, psPanel;
 ComPtr<ID3D11InputLayout> meshLayout, maskLayout;
 ComPtr<ID3D11RasterizerState> rasterSolid, rasterShadow, rasterWire;
-ComPtr<ID3D11DepthStencilState> depthScene, depthReadOnly, depthShadow, depthCopy, depthOff;
-ComPtr<ID3D11BlendState> blendCoverage, blendPremultiplied, blendAdd, blendAlpha;
+ComPtr<ID3D11DepthStencilState> depthScene, depthReadOnly, depthEqual, depthShadow, depthCopy, depthOff;
+ComPtr<ID3D11BlendState> blendCoverage, blendPremultiplied, blendAdd, blendAlpha, blendNoColor;
 ComPtr<ID3D11SamplerState> samplerSurface, samplerLinear, samplerShadow, samplerRepeat;
 
 Texture msColor, msDepth, resolved, bloom[BloomLevels], shadowMap, lightGrid;
@@ -173,6 +179,8 @@ bool CompileShaders()
 	ComPtr<ID3DBlob> maskBlob;
 	if (!vertex("VsCarved", vsCarved) || !pixel("PsCarved", psCarved) || !pixel("PsSurface", psSurfacePlain, "#define PLAIN_SURFACES 1\n"))
 		return false;
+	if (DepthPrepass && (!pixel("PsSurfaceDepth", psSurfaceDepth) || !pixel("PsSurface", psSurfaceSeen, "#define PLAIN_SURFACES 1\n#define DEPTH_PREPASSED 1\n")))
+		return false;
 	if (!vertex("VsMesh", vsMesh, &meshBlob) || !vertex("VsMeshShadow", vsMeshShadow) || !vertex("VsSprite", vsSprite)
 	    || !vertex("VsParticle", vsParticle) || !vertex("VsFullscreen", vsFullscreen) || !vertex("VsPanel", vsPanel)
 	    || !vertex("VsMask", vsMask, &maskBlob) || !pixel("PsSurface", psSurface) || !pixel("PsSprite", psSprite)
@@ -219,6 +227,9 @@ bool CreateStates()
 	ok = ok && SUCCEEDED(device->CreateDepthStencilState(&depth, &depthScene));
 	depth.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
 	ok = ok && SUCCEEDED(device->CreateDepthStencilState(&depth, &depthReadOnly));
+	depth.DepthFunc = D3D11_COMPARISON_EQUAL;
+	ok = ok && SUCCEEDED(device->CreateDepthStencilState(&depth, &depthEqual));
+	depth.DepthFunc = D3D11_COMPARISON_GREATER_EQUAL;
 	depth.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
 	depth.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
 	ok = ok && SUCCEEDED(device->CreateDepthStencilState(&depth, &depthShadow));
@@ -229,6 +240,8 @@ bool CreateStates()
 	ok = ok && SUCCEEDED(device->CreateDepthStencilState(&depth, &depthOff));
 
 	D3D11_BLEND_DESC blend {};
+	blend.RenderTarget[0].RenderTargetWriteMask = 0;
+	ok = ok && SUCCEEDED(device->CreateBlendState(&blend, &blendNoColor));
 	blend.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 	blend.AlphaToCoverageEnable = TRUE;
 	ok = ok && SUCCEEDED(device->CreateBlendState(&blend, &blendCoverage));
@@ -565,11 +578,29 @@ void DrawScene(const Scene &scene, int firstView, int copies, int width, int hei
 	context->OMSetRenderTargets(1, &target, depth);
 	context->OMSetDepthStencilState(depthScene.Get(), 0);
 	context->OMSetBlendState(blendCoverage.Get(), nullptr, 0xFFFFFFFF);
+	const bool prepass = DepthPrepass && plainSurfaces;
 	const auto drawSurfaces = [&] {
 		context->VSSetShader(vsMesh.Get(), nullptr, 0);
+		if (prepass) {
+			// Their depth is there already: each pixel that is seen is shaded once, and no other.
+			context->OMSetDepthStencilState(depthEqual.Get(), 0);
+			context->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+			context->PSSetShader(psSurfaceSeen.Get(), nullptr, 0);
+			DrawBatches(sceneBatches, copies);
+			context->OMSetDepthStencilState(depthScene.Get(), 0);
+			context->OMSetBlendState(blendCoverage.Get(), nullptr, 0xFFFFFFFF);
+			return;
+		}
 		context->PSSetShader(plainSurfaces ? psSurfacePlain.Get() : psSurface.Get(), nullptr, 0);
 		DrawBatches(sceneBatches, copies);
 	};
+	if (prepass) {
+		context->OMSetBlendState(blendNoColor.Get(), nullptr, 0xFFFFFFFF);
+		context->VSSetShader(vsMesh.Get(), nullptr, 0);
+		context->PSSetShader(psSurfaceDepth.Get(), nullptr, 0);
+		DrawBatches(sceneBatches, copies);
+		context->OMSetBlendState(blendCoverage.Get(), nullptr, 0xFFFFFFFF);
+	}
 	// Nearest first, the carved models go before the level: what the player holds is among
 	// them, and covers a good part of the view.
 	if (!NearestFirst)
@@ -658,10 +689,10 @@ void RendererRelease()
 	const auto reset = [](auto &...pointers) { (pointers.Reset(), ...); };
 	reset(vsCarved, psCarved);
 	reset(vsMesh, vsMeshShadow, vsSprite, vsParticle, vsFullscreen, vsPanel, vsMask);
-	reset(psSurface, psSurfacePlain, psSprite, psParticle, psResolve, psBloomDown, psBloomUp, psFinal, psPanel);
+	reset(psSurface, psSurfacePlain, psSurfaceDepth, psSurfaceSeen, psSprite, psParticle, psResolve, psBloomDown, psBloomUp, psFinal, psPanel);
 	reset(meshLayout, maskLayout, rasterSolid, rasterShadow, rasterWire);
-	reset(depthScene, depthReadOnly, depthShadow, depthCopy, depthOff);
-	reset(blendCoverage, blendPremultiplied, blendAdd, blendAlpha, samplerSurface, samplerLinear, samplerShadow, samplerRepeat);
+	reset(depthScene, depthReadOnly, depthEqual, depthShadow, depthCopy, depthOff);
+	reset(blendCoverage, blendPremultiplied, blendAdd, blendAlpha, blendNoColor, samplerSurface, samplerLinear, samplerShadow, samplerRepeat);
 	for (Texture *texture : { &msColor, &msDepth, &resolved, &shadowMap, &lightGrid })
 		texture->Release();
 	for (Texture &texture : bloom)

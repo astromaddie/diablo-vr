@@ -44,20 +44,23 @@ if [[ -f "$once" ]]; then
 fi
 
 # NAME=value lines, DEVILUTIONX_VR_ names only: nothing else gets into the environment this way.
+# A name that is set already stays as it is, so the environment the launcher was started with
+# comes first, then the one-shot file, then the settings file.
 load_env() {
 	local line
 	[[ -f "$1" ]] || return 0
 	while IFS= read -r line || [[ -n "$line" ]]; do
 		[[ "$line" =~ ^(DEVILUTIONX_VR_[A-Z0-9_]+)=(.*)$ ]] || continue
+		[[ -z "${!BASH_REMATCH[1]+set}" ]] || continue
 		export "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
 		applied+=("${BASH_REMATCH[1]}=${BASH_REMATCH[2]}")
 	done < "$1"
 }
 applied=()
-load_env "$data/vr-settings.env"
 once_env="$data/launch-once.env"
 load_env "$once_env"
 rm -f "$once_env"
+load_env "$data/vr-settings.env"
 
 # Foveated rendering (DEVILUTIONX_VR_FOVEATION=lo, med or hi in vr-settings.env): the Frame's own
 # Vulkan layer draws the eye images at full density where the eyes look and coarser away from

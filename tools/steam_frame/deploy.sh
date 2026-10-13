@@ -98,7 +98,8 @@ fi
 remote true 2> /dev/null || die "The Frame is not reachable at $frame (USB cable, charge, ssh key)."
 
 # Never under a running game: it would be reading the files being replaced.
-if remote "ps -eo args | grep -q '[d]evkit-game/$title/devilutionx'"; then
+# The launcher starts it as ./devilutionx from its folder, so it is found by that folder.
+if remote "for p in \$(pgrep -x devilutionx); do [ \"\$(readlink /proc/\$p/cwd)\" = \"\$HOME/$remote_dir\" ] && exit 0; done; exit 1"; then
 	die "$title is running on the Frame. Quit it first."
 fi
 

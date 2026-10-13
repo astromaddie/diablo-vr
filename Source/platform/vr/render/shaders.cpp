@@ -675,7 +675,9 @@ float4 PsSurface(SurfaceOut input) : SV_Target
 	uint cycling = (uint)(surfaceNormals.Load(int4(int2(saturate(crisp) * size * 0.9999), uvLayer.z, 0)).b * 255 + 0.5);
 	if (textured && !model && cycling != 0)
 		texel.rgb = paletteLit.Load(int4(cycling, 0, 0, 0)).rgb;
+#if !DEPTH_PREPASSED
 	clip(textured ? texel.a - 0.3 : 1);
+#endif
 	// Walls, floors and everything else built of the level's art wear the grit; what glows does not.
 	bool worn = gritty && textured && input.material.x <= 0 && (model || cycling == 0);
 	if (worn)
@@ -697,6 +699,25 @@ float4 PsSurface(SurfaceOut input) : SV_Target
 		color = albedo.rgb * (lit.light + input.material.x);
 	}
 	return Finish(input, color, albedo, shadingNormal, lit, eye);
+}
+
+// The depth pre-pass of levels without materials (DEVILUTIONX_VR_DEPTH_PREPASS): only what
+// decides whether the pixel is there at all, which is the art's cut-out. PsSurface then runs once
+// for each pixel that is seen, compiled with DEPTH_PREPASSED and drawn where the depth is equal.
+void PsSurfaceDepth(SurfaceOut input)
+{
+	float layer = input.uvLayer.z;
+	// Models (layers from 4096 up) and plain colours have no holes.
+	bool cutOut = layer >= 0 && layer < 4096;
+	float3 uvLayer = float3(input.uvLayer.xy, max(layer, 0));
+	if (uvLayer.y < 0)
+		uvLayer.y = lerp(0.6, 0.25, 1 - abs(frac(-uvLayer.y * 0.5) * 2 - 1));
+	float2 size = float2(64, 128);
+	float2 at = uvLayer.xy * size - 0.5;
+	float2 crisp = (floor(at) + 0.5 + saturate((frac(at) - 0.5) / max(fwidth(at), 1e-4) + 0.5)) / size;
+	float alpha = surfaces.SampleGrad(surfaceSampler, float3(crisp, uvLayer.z), ddx(uvLayer.xy), ddy(uvLayer.xy)).a;
+	// Half, where alpha to coverage puts the edge when there is one sample a pixel.
+	clip(cutOut ? alpha - 0.5 : 1);
 }
 
 float4 PsSprite(SurfaceOut input, out float depth : SV_Depth) : SV_Target

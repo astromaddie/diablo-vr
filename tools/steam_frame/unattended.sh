@@ -5,10 +5,12 @@
 #   tools/steam_frame/unattended.sh guard
 #   tools/steam_frame/unattended.sh bench [--level N] [--repeat N] ["NAME=value NAME=value" ...]
 #   tools/steam_frame/unattended.sh session [--seconds N] [--no-dump] [NAME=value ...]
+#   tools/steam_frame/unattended.sh steam [--seconds N] [DEVILUTIONX_VR_NAME=value ...]
 #
 #   guard    says whether the Frame is free to use, and why not if it is not. Exit 0: free.
 #   bench    the VR mode's own benchmark (--vr-bench): what a headset frame draws, both eyes,
-#            along a fixed camera path for 20 seconds, with no headset session. Each quoted
+#            at 1728x1728, along a fixed camera path for 20 seconds, with no headset session.
+#            It draws all of each eye image, the part the lenses hide included. Each quoted
 #            argument is one configuration, a list of DEVILUTIONX_VR_ settings (none: the
 #            defaults). Every configuration is run --repeat times (default 2) and the results
 #            are printed as a table and kept in build-frame/bench/.
@@ -18,6 +20,10 @@
 #            head, so pass DEVILUTIONX_VR_FORCE_RENDER=1 to have the world drawn anyway.
 #            Saving the eyes stalls the game for some 45 ms each time: --no-dump when the
 #            frame pacing is what is being looked at.
+#
+#   steam    the same, but started the way the Steam library starts it: in the Steam Linux
+#            Runtime container, with the title's own SteamVR settings (refresh rate) and with
+#            controllers. Settings for the run travel in the launcher's one-shot file.
 #
 # The headset is shared, and SteamVR runs one VR application at a time: starting ours ends
 # whatever else is running, in the face of whoever wears it. So every run first checks that no
@@ -54,7 +60,9 @@ guard() {
 		}
 	fi
 	state="$(remote '
-		running="$(ps -eo args | grep -E "reaper SteamLaunch|lepton-dev|devkit-game/'"$title"'/devilutionx" | grep -v grep | head -3)"
+		running="$(ps -eo args | grep -E "reaper SteamLaunch|lepton-dev" | grep -v grep | head -3)"
+		# The launcher starts the game as ./devilutionx from its folder, so its command line does not name the title.
+		for p in $(pgrep -x devilutionx); do [ "$(readlink /proc/$p/cwd)" = "$HOME/devkit-game/'"$title"'" ] && running="$running devilutionx($p)"; done
 		last="$(grep -E " - (entering|leaving) standby" ~/.local/share/Steam/logs/vrserver.txt | tail -1)"
 		echo "running=$running"
 		echo "standby=$last"
@@ -113,7 +121,7 @@ bench)
 				d=$remote_data
 				rm -rf \$d/bench && mkdir -p \$d/bench
 				cd ~/devkit-game/$title || exit 1
-				export XDG_RUNTIME_DIR=/run/user/\$(id -u) SDL_AUDIODRIVER=dummy DEVILUTIONX_VR_OFFSCREEN=\$d/bench $config
+				export XDG_RUNTIME_DIR=/run/user/\$(id -u) SDL_AUDIODRIVER=dummy DEVILUTIONX_VR_OFFSCREEN=\$d/bench DEVILUTIONX_VR_BENCH_WIDTH=1728 DEVILUTIONX_VR_BENCH_HEIGHT=1728 $config
 				timeout 120 ./LAUNCH-STEAM-FRAME.sh --vr -n --verbose --vr-bench $level > /dev/null 2>&1
 				cat \$d/bench/bench.json 2> /dev/null
 				rm -rf \$d/bench \$d/single_*.sv \$d/devilutionx_*.log
@@ -171,6 +179,56 @@ session)
 	remote "rm -rf $remote_data/vr-dumps"
 	grep -E 'VR: (eye|display period|controllers|first frame|session|xrEndFrame|refresh)|ERROR' "$out/run.log" | cut -c1-200 | sort | uniq -c | sort -rn | head -20
 	grep 'VR: perf' "$out/run.log" | tail -3 | cut -c1-200
+	;;
+
+steam)
+	seconds=60
+	settings=()
+	while (($#)); do
+		case "$1" in
+		--seconds) seconds="${2:?}"; shift 2 ;;
+		*)
+			[[ "$1" =~ ^DEVILUTIONX_VR_[A-Z0-9_]+=[A-Za-z0-9._/,-]*$ ]] || die "bad setting $1 (the launcher only takes DEVILUTIONX_VR_ settings from a file)"
+			settings+=("$1")
+			shift
+			;;
+		esac
+	done
+	reason="$(guard)" || die "stopping: $reason"
+	out="$root/build-frame/session"
+	rm -rf "$out"
+	mkdir -p "$out"
+	# Steam starts the title with its registered arguments, so what this run adds travels in the
+	# launcher's one-shot file, which it deletes before the game starts.
+	remote "
+		d=$remote_data
+		ls \$d/single_*.sv > /dev/null 2>&1 && touch \$d/.had-save
+		printf '%s\n' DEVILUTIONX_VR_AUTOSTART=1 ${settings[*]:-} > \$d/launch-once.env
+		id=\$(python3 - <<'PY'
+import glob, re
+for f in glob.glob('/home/steamos/.local/share/Steam/userdata/*/config/shortcuts.vdf'):
+    d = open(f, 'rb').read()
+    for m in re.finditer(rb'\x02appid\x00(....)\x01[Aa]pp[Nn]ame\x00([^\x00]*)\x00', d, re.S):
+        if m.group(2).decode(errors='replace').endswith('$title'):
+            print((int.from_bytes(m.group(1), 'little') << 32) | 0x02000000)
+PY
+)
+		[ -n \"\$id\" ] || { echo 'the title is not registered with Steam'; rm -f \$d/launch-once.env; exit 1; }
+		printf 'steam://rungameid/%s\n' \"\$id\" > ~/.steam/steam.pipe
+		sleep $seconds
+		mine() { for p in \$(pgrep -x devilutionx); do [ \"\$(readlink /proc/\$p/cwd)\" = \"\$HOME/devkit-game/$title\" ] && echo \$p; done; }
+		pid=\$(mine | head -1)
+		[ -n \"\$pid\" ] && kill -TERM \$pid
+		for i in 1 2 3 4 5 6 7 8 9 10; do [ -z \"\$(mine)\" ] && break; sleep 1; done
+		[ -n \"\$(mine)\" ] && { echo 'the game ignored SIGTERM, killing it'; kill -KILL \$(mine); }
+		if [ -e \$d/launch-once.env ]; then echo 'the title never started: launch-once.env was not used'; rm -f \$d/launch-once.env; fi
+		[ -e \$d/.had-save ] || rm -f \$d/single_*.sv
+		rm -f \$d/.had-save \$d/devilutionx_*.log
+		[ -n \"\$pid\" ] && echo \"ran as pid \$pid\"
+	" || true
+	scp -q "${ssh_opts[@]}" "$frame:.local/share/DiabloVR/run.log" "$out/run.log" || die "no log came back"
+	grep -E '\[launch\]|VR: (eye|display period|controllers|first frame|session|refresh|pacing)|ERROR|fdm_injection: (created|device)' "$out/run.log" | cut -c1-200 | sort | uniq -c | sort -rn | head -24
+	grep 'VR: perf' "$out/run.log" | tail -2 | cut -c1-200
 	;;
 
 *)
