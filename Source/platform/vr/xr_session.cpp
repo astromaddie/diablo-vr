@@ -45,6 +45,8 @@ namespace vr {
 
 State state = State::Uninitialized;
 bool sessionRunning;
+bool sessionFocused;
+bool sessionWasFocused;
 /** Result of the background Init(): -1 while running, then 0 (failed) or 1 (ready). */
 std::atomic<int> initResult { -1 };
 /** Which installed OpenXR runtime to try next; advanced whenever one has no headset. */
@@ -468,6 +470,9 @@ void SessionLost(const char *reason)
 {
 	LogInfo("VR: session lost ({}), reconnecting", reason);
 	sessionRunning = false;
+	sessionFocused = false;
+	sessionWasFocused = false;
+	UpdateFocusPause(); // The game goes on in the desktop window.
 	state = State::Uninitialized; // VrPresent tears down and reconnects.
 }
 
@@ -477,6 +482,10 @@ void PollEvents()
 	while (xrPollEvent(instance, &event) == XR_SUCCESS) {
 		if (event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
 			const XrSessionState newState = reinterpret_cast<XrEventDataSessionStateChanged *>(&event)->state;
+			// Focused: worn, and nothing of the system's (its menu, another overlay) in front.
+			sessionFocused = newState == XR_SESSION_STATE_FOCUSED;
+			sessionWasFocused = sessionWasFocused || sessionFocused;
+			LogVerbose("VR: session state {}{}", static_cast<int>(newState), sessionFocused ? " (focused)" : "");
 			if (newState == XR_SESSION_STATE_READY) {
 				XrSessionBeginInfo beginInfo { XR_TYPE_SESSION_BEGIN_INFO };
 				beginInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;

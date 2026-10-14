@@ -72,6 +72,10 @@ struct EyeTarget {
 // xr_session.cpp
 extern State state;
 extern bool sessionRunning;
+/** The session has the wearer's attention: the headset is on and the system shows nothing over the game. */
+extern bool sessionFocused;
+/** It has had it at least once since it began. */
+extern bool sessionWasFocused;
 extern std::atomic<int> initResult;
 extern size_t runtimeIndex;
 extern XrInstance instance;
@@ -108,6 +112,10 @@ void PollEvents();
 void SessionLost(const char *reason);
 bool UploadFrame(SDL_Surface *surface);
 void Cleanup();
+
+// vr.cpp
+/** Pauses the game while the session is out of focus, and lets it go on when focus is back. */
+void UpdateFocusPause();
 
 // vr.cpp: where the 2D frame and the world sit relative to the tracking space.
 extern XrPosef screenPose;

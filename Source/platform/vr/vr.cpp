@@ -222,6 +222,37 @@ void PlaceScreen(XrTime time)
 	screenPlaced = true;
 }
 
+/** The game is held paused because the session lost the wearer's attention. */
+bool focusPaused;
+
+/**
+ * Losing focus means the headset came off or the system's menu is up: the player is not looking
+ * and the controllers are not ours. The game pauses the way it does when its window loses focus,
+ * sound included, and goes on by itself when focus is back. The option that governs the one
+ * governs the other.
+ */
+void UpdateFocusPause()
+{
+	// Debug runs with nobody in the headset never get focus, and have to play.
+	static const bool unattended = Knob("DEVILUTIONX_VR_FORCE_RENDER", 0) != 0 || SDL_getenv("DEVILUTIONX_VR_AUTOSTART") != nullptr || VrBenchLevel >= 0;
+	// Only once it has been focused: a session comes up unfocused, which is no loss.
+	bool away = sessionRunning && sessionWasFocused && !sessionFocused && !unattended && *GetOptions().Gameplay.pauseOnFocusLoss;
+	// Debug aid (DEVILUTIONX_VR_DEBUG_FOCUS=<seconds>): focus comes and goes by the clock, that
+	// long each, so the pause can be watched with nobody there to take the headset off.
+	static const float debugFocus = Knob("DEVILUTIONX_VR_DEBUG_FOCUS", 0);
+	if (debugFocus > 0)
+		away = sessionRunning && gbRunGame && (SDL_GetTicks() / static_cast<Uint32>(debugFocus * 1000)) % 2 == 1;
+	if (away && !focusPaused) {
+		diablo_focus_pause();
+		focusPaused = true;
+		LogVerbose("VR: out of focus, pausing (pause mode {})", PauseMode);
+	} else if (!away && focusPaused) {
+		diablo_focus_unpause();
+		focusPaused = false;
+		LogVerbose("VR: in focus again (pause mode {})", PauseMode);
+	}
+}
+
 /** Anything that needs the 2D frame in view: panels, dialogs, shops, menus, the automap. */
 bool UiOpen()
 {
@@ -236,6 +267,11 @@ using namespace vr;
 bool VrSessionRunning()
 {
 	return sessionRunning;
+}
+
+bool VrOwnsFocus()
+{
+	return VrEnabled && sessionRunning;
 }
 
 bool VrSkipsDesktopFrame()
@@ -331,6 +367,7 @@ void VrPresent(SDL_Surface *surface)
 	}
 
 	PollEvents();
+	UpdateFocusPause();
 	if (!sessionRunning)
 		return;
 

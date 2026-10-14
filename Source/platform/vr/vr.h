@@ -27,6 +27,12 @@ extern int VrBenchLevel;
 bool VrSessionRunning();
 
 /**
+ * Whether the headset decides when the game pauses for lack of attention. While its session
+ * runs it does: the desktop window gaining or losing focus then says nothing about the player.
+ */
+bool VrOwnsFocus();
+
+/**
  * Whether this frame is left out of the desktop window. With DEVILUTIONX_VR_DESKTOP_WINDOW=0 the
  * window only gets a frame a second while the headset session runs: on a standalone headset
  * nobody sees it, and drawing it costs time every frame.
