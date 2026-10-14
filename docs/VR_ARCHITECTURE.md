@@ -95,6 +95,10 @@ Nothing about the VR mode's design changes on the Frame. For reference when work
 - **Renderer.** Both eyes in one pass (render-target array index from the vertex shader), into
   app-owned 4x MSAA `R11G11B10_FLOAT` targets, resolved by a shader, bloom, then a final pass
   into the runtime's images. The hidden-area mesh is used when the runtime gives one.
+- **Focus.** When the session leaves `FOCUSED` after having had it (the headset comes off, the
+  system's menu opens) the game pauses with its own `diablo_focus_pause`, sound included, and
+  resumes when focus is back. Input already stops there, because `xrSyncActions` reports the
+  session unfocused. While a session runs the desktop window's focus events are ignored.
 - **Without a headset.** `DEVILUTIONX_VR_OFFSCREEN=<dir>` draws levels to pictures and
   `--vr-bench <level>` times what a headset frame draws, both with a plain D3D11 device and no
   OpenXR. `build.sh render` runs the first on lavapipe on the build machine, and
@@ -159,7 +163,8 @@ For checks with nobody wearing the headset: `DEVILUTIONX_VR_FORCE_RENDER=1` draw
 made-up head standing in the room (`DEVILUTIONX_VR_DIAG_YAW` turns it), `DEVILUTIONX_VR_AUTOSTART`
 takes the game from the menus into town, `DEVILUTIONX_VR_DEBUG_LEVEL` on into a dungeon level,
 `DEVILUTIONX_VR_DUMP` saves both eyes every 150 frames (each save stalls the game some 45 ms), and
-`DEVILUTIONX_VR_DEBUG_PACING=1` logs the frames around each missed refresh. With `--verbose` the
+`DEVILUTIONX_VR_DEBUG_PACING=1` logs the frames around each missed refresh, and
+`DEVILUTIONX_VR_DEBUG_FOCUS=<seconds>` takes focus away and gives it back by the clock. With `--verbose` the
 log has a `VR: pacing` line every ten seconds: frames a second against the display's rate,
 refreshes missed, how long the game was away between frames and how long the runtime held it.
 
@@ -237,5 +242,6 @@ or worn. Start-up takes 2.5 seconds to a running session.
 | Even stepping of walking and turning (display time instead of the millisecond clock) | built; needs a wearer to say whether it shows |
 | Foveation | measured (table above), off; needs a wearer |
 | Frame controller profile | bound by SteamVR in the worn session; no button has been pressed |
-| Standard system layer beyond View re-centre, focus-loss pause, settings page | not started |
+| Pause when the session loses focus (headset off, system menu) | built, through the game's own focus pause; not run on the device |
+| Standard system layer beyond View re-centre, settings page | not started |
 | Windows build after the binding change | not compiled |
