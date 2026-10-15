@@ -10,7 +10,7 @@
 #   --data FILE      also copy the user's own DIABDAT.MPQ to ~/.local/share/DiabloVR/ on the
 #                    Frame, where the launcher keeps the game's data. Skipped when the file there
 #                    already has the same size and SHA-256. Never put it in git or in the package.
-#   --launch-args A  extra arguments for the registered title
+#   --launch-args A  extra arguments for the registered title (a VR package gets --vr anyway)
 #   --no-register    only copy files
 #   --logs           print the last run's log (run.log) and exit
 #
@@ -151,6 +151,11 @@ if ((register)); then
 	echo "== registering $title"
 	# The devkit service's own shortcut tool, as the other native Frame ports use it.
 	argv='"LAUNCH-STEAM-FRAME.sh"'
+	# A VR package always starts in VR: the shortcut is rewritten on every deploy, and one
+	# without --vr starts the flat game.
+	if ((${#vr_flag[@]})) && [[ " $launch_args " != *" --vr "* ]]; then
+		launch_args="--vr${launch_args:+ $launch_args}"
+	fi
 	for a in $launch_args; do
 		[[ "$a" =~ ^[A-Za-z0-9._=-]+$ ]] || die "bad launch argument $a"
 		argv+=', "'$a'"'
