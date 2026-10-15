@@ -75,6 +75,9 @@ New settings, which work on Windows too. Without them everything behaves as befo
 | `DEVILUTIONX_VR_SNAP_TURN` | Degrees of a snap turn (45) | 30 |
 | `DEVILUTIONX_VR_EYE_SIZE` | Eye image width in pixels (0: what the runtime recommends) | 0 |
 | `DEVILUTIONX_VR_FOVEATION` | `lo`, `med` or `hi`: the Frame's own eye-tracked foveation (launcher only) | off |
+| `DEVILUTIONX_VR_WRIST_HUD=1` | The HUD strip split in two and put on the wrists, instead of low in front | 1 |
+| `DEVILUTIONX_VR_WRIST_WIDTH` | Width of each wrist half in meters (0.17) | 0.17 |
+| `DEVILUTIONX_VR_LASER_LAYER=0` | The laser drawn in the world as before, not as layers over everything | on |
 
 Levels with no materials, floor map or grit, which is the default look, are now always drawn with
 a variant of the surface shader that leaves those lookups out. It gives the same picture, so it
@@ -94,17 +97,37 @@ a virtual gamepad, so the Frame bindings are the Touch ones with these differenc
 
 | Input | What it does |
 | --- | --- |
-| A, B, X, Y (all on the right hand) | The same as those letters on Touch |
-| Menu (right) | Game menu |
-| View (left) | The gamepad's Select. Held for a second: re-centre, with a buzz in both hands |
+| A, B, X, Y (all on the right hand) | The same as those letters on Touch in play. In the main menus, the game menu, shops and dialogs A confirms and B goes back, which are the gamepad's A and B there |
+| Menu (right) | Game menu, where Save Game is |
+| View (left), short press | In play: the help screen, or closes what's open. In the main menus: the gamepad's Select (back). It goes to the game when it's let go |
+| View, held for a second | Re-centre, with a buzz in both hands |
 | Bumpers | Health and mana potions, as on a gamepad. On the Frame the right stick no longer drinks potions, so turning can't cost one |
 | D-pad | The gamepad's D-pad wherever the game shows its own interface (menus, inventory, shops). Nothing out in the world |
+
+On Touch, A in the main menus reaches the game as the gamepad's B, so it goes back, and Y
+confirms. I left that alone, since I can't try Touch, but the same switch would work there.
+
+A switch between menu and play buttons waits until A and B are both up, so the A that opens a
+shop doesn't also buy the first thing in it.
+
+With the Frame's controllers the help screen starts with their controls and where saving is.
+It comes up by itself the first time a game is started in the headset, and a file
+`vr-help-shown` in the config folder remembers that it did.
 
 The bindings are only suggested when the runtime has `XR_VALVE_frame_controller_interaction`.
 `tools/steam_frame/tests/check_bindings.py` checks every suggested path against its profile.
 
 ## Other changes that apply everywhere
 
+- The laser is two quad layers submitted after every other layer: a beam from the hand to what
+  it hits, turned about its length to face the eyes, and a dot where it lands on the screen or a
+  panel. Drawn in the world, it was under the screen and the panels, which are quad layers the
+  compositor puts over the eyes' picture, so it vanished over every menu. It now shows over the
+  menus too, and over the world it ends at what the hand aims at, as before. The beam turns gold,
+  with a tick in the hand, on anything the trigger picks up, opens or talks to.
+- The left hand points as well, where the right hand isn't on a screen or panel, and its trigger
+  clicks there. That's how the right wrist's buttons are pressed. On a panel in the world, the
+  right grip is the right mouse button, as it already was on the 2D screen.
 - When the headset session loses focus after having had it (headset off,
   system menu open), the game pauses with its own window-focus pause, sound included, and resumes
   when focus is back. It follows the existing "Pause Game When Window Loses Focus" option. While a
@@ -119,7 +142,9 @@ The bindings are only suggested when the runtime has `XR_VALVE_frame_controller_
   `DEVILUTIONX_VR_DEBUG_LEVEL` works in a real session too. `DEVILUTIONX_VR_DUMP` saves both eyes.
   With `--verbose` there's a `VR: pacing` line every ten seconds with missed refreshes.
   `DEVILUTIONX_VR_DEBUG_PACING` and `DEVILUTIONX_VR_DEBUG_FOCUS` are for chasing frame misses and
-  testing the pause.
+  testing the pause. `DEVILUTIONX_VR_DEBUG_HANDS` holds stand-in hands out in front while the
+  controllers aren't tracked, and logs the layers each frame submits as they change, so the laser
+  and the wrists can be checked against the runtime with nobody there.
 
 ## Patches to third-party code
 
@@ -141,6 +166,7 @@ Both live in `tools/steam_frame`. Neither changes anything for other users of th
 | `Source/CMakeLists.txt` | The VR sources and libraries per platform: d3d11/dxgi/d3dcompiler on Windows, dxvk-native and vkd3d on Linux, plus the binding file for each |
 | `Source/init.cpp` | Window focus events don't pause the game while a headset session runs |
 | `Source/engine/dx.cpp` | The desktop window can skip frames during a headset session |
+| `Source/help.cpp` | During a headset session the help screen starts with the VR controls |
 
 All of it is inside `DEVILUTIONX_VR`.
 
@@ -148,7 +174,8 @@ The game without VR is unchanged. I built the flat game (`DEVILUTIONX_VR=OFF`, L
 from upstream `main` and from this branch in the same folder with the same version string. Only
 `init.cpp` and `dx.cpp` recompiled. With VR off, `init.cpp` preprocesses to exactly upstream's.
 `dx.cpp` differs only in the line numbers that `ErrSdl()` writes into its error messages, because
-of the two lines added inside `#ifdef DEVILUTIONX_VR`.
+of the two lines added inside `#ifdef DEVILUTIONX_VR`. `help.cpp`, changed later, also preprocesses
+to exactly upstream's with VR off.
 
 I haven't built the Windows side. Its binding file, `xr_d3d11_win32.cpp`, passes the
 D3D11 calls straight through to OpenXR, and it type-checks against dxvk's D3D11 headers. The
@@ -205,11 +232,16 @@ Checked:
   refresh rate and quits cleanly on SIGTERM.
 - The flat game: it boots to the main menu in the build image (`build.sh smoke`).
 
+- Playing it: after the performance work it was played in the headset and ran fine. That play
+  turned up the laser missing over the menus, the HUD wanted on the hands, A and B meaning
+  different things in different menus, and picking up and saving being hard to find out.
+- The fixes for those, unattended: with stand-in hands the Frame's runtime takes the menu with the
+  beam and the dot (3 layers) and the world with both wrists and the beam (4 layers), at 90 Hz.
+
 Not checked yet:
 
-- Playing it in the headset. It was played once, briefly, before the performance work, at 42 fps.
-  It hasn't been played since. So the controls, the focus pause, the even stepping and foveation
-  haven't been tried by anyone wearing it.
+- The laser, the wrists, the menu buttons and the help screen in the headset.
+- Foveation in the headset.
 - Fights. No frame rate has been measured in one.
 - The Windows build (see above).
 

@@ -15,6 +15,8 @@
 #include <SDL.h>
 #endif
 
+#include <vector>
+
 namespace devilution {
 
 /** Set by the `--vr` command line flag. */
@@ -47,6 +49,12 @@ bool VrSkipsDesktopFrame();
 void VrPresent(SDL_Surface *surface);
 
 void VrShutdown();
+
+/**
+ * Paragraphs for the top of the help screen while the headset is in use: the controls of the
+ * controllers in hand, and where saving is. Same format as the help text ('$' starts a heading).
+ */
+const std::vector<const char *> &VrControlsHelp();
 
 /** True while the headset shows the level in 3D, so the 2D renderer need not draw it. */
 bool VrShowsWorld();

@@ -37,6 +37,12 @@ inline const float ScreenWidth = Knob("DEVILUTIONX_VR_SCREEN_WIDTH", 2.6F);
 inline const float PanelDistance = Knob("DEVILUTIONX_VR_PANEL_DISTANCE", 1.1F);
 inline const float PanelWidth = Knob("DEVILUTIONX_VR_PANEL_WIDTH", 1.4F);
 inline const float HudWidth = Knob("DEVILUTIONX_VR_HUD_WIDTH", 0.6F);
+// DEVILUTIONX_VR_WRIST_HUD=1: the HUD strip splits in two and goes on the wrists, life and the
+// left of the belt on the left, mana and the right of the belt on the right. Width of each half.
+inline const bool WristHud = Knob("DEVILUTIONX_VR_WRIST_HUD", 0) != 0;
+inline const float WristWidth = Knob("DEVILUTIONX_VR_WRIST_WIDTH", 0.17F);
+// 0: the laser is drawn in the world, under the screen and the panels, as it used to be.
+inline const bool LaserLayer = Knob("DEVILUTIONX_VR_LASER_LAYER", 1) != 0;
 // Eye height used when the runtime has no floor-level tracking space.
 inline const float SeatedEyeHeight = Knob("DEVILUTIONX_VR_EYE_HEIGHT", 1.65F);
 // Meters per second of right-hand speed that counts as a weapon swing.
@@ -143,6 +149,8 @@ extern bool worldPointerValid;
 extern float worldPointerHit[3];
 extern bool freeValid;
 
+/** A controller's aim pose (or, with DEVILUTIONX_VR_DEBUG_HANDS, a stand-in while it is not tracked). */
+bool LocateHand(Hand hand, XrTime time, XrPosef &pose, XrSpaceVelocity *velocity = nullptr);
 bool InitActions();
 /** The runtime bound another kind of controller: note which. */
 void ControllersChanged();
@@ -153,6 +161,22 @@ void SelfCheck();
 void SetKey(bool &isDown, bool down, SDL_Keycode key);
 void SyncFreePosition();
 void UpdateInput(XrTime time, float screenHeight);
+
+// xr_laser.cpp
+/** The laser this frame, in tracking space: from the pointing hand to what it hits. */
+struct LaserPointer {
+	bool visible;
+	/** It lands on the screen or a panel, where a dot shows the spot. */
+	bool onQuad;
+	/** What it points at reacts to the trigger: an item, a door, a chest, someone to talk to. */
+	bool active;
+	XrVector3f from;
+	XrVector3f to;
+};
+extern LaserPointer laser;
+/** Fills up to two quad layers for the laser, to go over every other layer. Returns how many. */
+uint32_t LaserLayers(XrTime time, XrCompositionLayerQuad layers[2]);
+void ReleaseLaser();
 
 // xr_frame.cpp
 bool RenderWorld(XrTime time, XrCompositionLayerProjectionView projectionViews[2]);

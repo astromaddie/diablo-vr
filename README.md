@@ -232,7 +232,7 @@ The layout below uses Touch-style controller names.
 | **Right stick left / right** | Turn (45 degree snap by default, smooth turning optional) |
 | **Right stick up / down** | Drink a health potion / a mana potion from the belt |
 | **Swing the right hand** | Melee attack on the neighbouring monster the swing goes towards |
-| **Right trigger** | Click on what the right hand points at: attack, talk, walk there, pick up |
+| **Right trigger** | Click on what the right hand points at: attack, talk, walk there, pick up. The beam turns gold on anything it picks up, opens or talks to |
 | **Bow equipped: bring the right hand to the left, hold the trigger, pull back, release** | Shoot along the arrow |
 | **Right grip** | Take hold of what is within reach: door, chest, lever, shrine, item |
 | **Left trigger** | Cast the readied spell at what the left hand points at |
@@ -250,7 +250,8 @@ The layout below uses Touch-style controller names.
 
 | Input | Action |
 |---|---|
-| **Right hand** | Laser pointer: it is the mouse |
+| **Right hand** | Laser pointer: it is the mouse. The beam is drawn over everything, with a dot where it lands |
+| **Left hand** | Points too, where the right hand isn't on a screen or panel; its trigger clicks there |
 | **Right trigger** | Left click |
 | **Right grip** | Right click |
 | **Left stick** | Menu navigation, as on a gamepad |
@@ -269,8 +270,15 @@ above (they're all on the right controller). On top of that:
 |---|---|
 | **Bumpers** | Health and mana potion from the belt. The right stick no longer drinks potions on the Frame, so turning can't cost one |
 | **D-pad** | The gamepad's D-pad in menus, the inventory and shops |
-| **View** | The gamepad's Select. Hold it for a second to recentre |
-| **Menu** (right controller) | Game menu (Escape) |
+| **A / B in menus** | Confirm / back, in the main menus, the game menu, shops and dialogs. In play they're still the primary and secondary action |
+| **View** | In play: the help screen, which starts with these controls, or closes whatever is open. In the main menus: back. Hold it for a second to recentre |
+| **Menu** (right controller) | Game menu (Escape), where Save Game is |
+
+The help screen also comes up by itself the first time you start a game in the headset.
+
+On the Frame the HUD strip goes on your wrists (`DEVILUTIONX_VR_WRIST_HUD`): life, the menu
+buttons and belt slots 1 to 4 on the left wrist, mana, belt slots 5 to 8 and the spell buttons
+on the right. Point at one wrist with the other hand and pull the trigger to press what's on it.
 
 ## Settings
 
@@ -322,6 +330,9 @@ start "" devilutionx.exe --vr
 | `DEVILUTIONX_VR_SCREEN_WIDTH` | `2.6` | Width of the menu screen, meters |
 | `DEVILUTIONX_VR_PANEL_DISTANCE` | `1.1` | Distance of the in-game panel, meters |
 | `DEVILUTIONX_VR_PANEL_WIDTH` | `1.4` | Width of the in-game panel, meters |
+| `DEVILUTIONX_VR_WRIST_HUD` | `0` | `1`: the HUD strip splits in two and goes on the wrists (the Steam Frame's default) |
+| `DEVILUTIONX_VR_WRIST_WIDTH` | `0.17` | Width of each wrist half, meters |
+| `DEVILUTIONX_VR_LASER_LAYER` | `1` | `0`: the laser is drawn in the world again, under the screen and panels, and not over the menus |
 
 ### Files
 
@@ -413,6 +424,7 @@ Source/platform/vr/
   xr_session.cpp          OpenXR instance, runtime selection, session, swapchains
   xr_frame.cpp            Frame loop and layer composition
   xr_input.cpp            Controllers: movement, swings, bow, spells, grabbing, panels, haptics
+  xr_laser.cpp            The laser as layers over everything else
   render/
     scene.h               Plain scene description handed from the game side to the renderer
     renderer.cpp/.h       Direct3D 11 renderer: stereo, lighting, fog, MSAA, tone mapping

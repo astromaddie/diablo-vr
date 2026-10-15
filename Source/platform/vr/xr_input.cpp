@@ -15,7 +15,8 @@
  *  - left trigger        -> cast the spell held ready, at what the left hand points at (the right button)
  *  - left grip (held)    -> the speedbook round the left hand; the left stick chooses, letting go sets it
  *  - left Y / X          -> inventory / character panel; everything else through the virtual pad
- * On the 2D screen the right hand points and clicks as before.
+ * On the 2D screen the right hand points and clicks as before. The left hand points where the
+ * right one misses a screen or panel, and its trigger clicks there.
  */
 #include "platform/vr/vr_internal.h"
 
@@ -28,6 +29,7 @@
 
 #include "automap.h"
 #include "control/control.hpp"
+#include "controls/plrctrls.h"
 #include "cursor.h"
 #include "diablo.h"
 #include "engine/backbuffer_state.hpp"
@@ -82,6 +84,10 @@ bool frameControllers;
 bool viewDown;
 bool viewRecentered;
 Uint32 viewSince;
+/** A short press of View: the game's Back (Select) for a few frames, or Escape in a game. */
+int backPulse;
+int escapePulse;
+bool viewEscapeDown;
 
 SDL_Joystick *virtualPad;
 bool mouseLeftDown;
@@ -112,6 +118,10 @@ Uint32 walkSentAt;
 /** The trigger is held as a plain click on something that has to be reached (item, object, townsperson). */
 bool clickingWorld;
 bool pointerOnQuad;
+/** The left hand is the one pointing at the screen or a panel (the right one is not on any). */
+bool leftPointing;
+/** The trigger would do something with what the laser is on: worth a tick in the hand when it gets there. */
+bool pointerWasActive;
 /** Where the right hand points, flattened to the ground plane (world x, z), unit length. */
 float aimDirX;
 float aimDirZ = -1;
@@ -148,6 +158,32 @@ const float WalkSpeed = Knob("DEVILUTIONX_VR_WALK_SPEED", 2.5F);
 const float TownPace = Knob("DEVILUTIONX_VR_TOWN_PACE", 1.5F);
 bool gliding;
 float vignetteNow;
+
+/**
+ * Debug aid (DEVILUTIONX_VR_DEBUG_HANDS=1): with nobody holding the controllers, hands held out in
+ * front at waist height, the right one pointing ahead and a little down, so the laser and the
+ * wrists reach the compositor in unattended runs.
+ */
+const bool DebugHands = Knob("DEVILUTIONX_VR_DEBUG_HANDS", 0) != 0;
+
+bool LocateHand(Hand hand, XrTime time, XrPosef &pose, XrSpaceVelocity *velocity)
+{
+	if (Locate(aimSpace[hand], time, pose, velocity))
+		return true;
+	XrPosef head;
+	if (!DebugHands || !Locate(viewSpace, time, head))
+		return false;
+	const XrVector3f forward = Rotate(head.orientation, { 0, 0, -1 });
+	const float yaw = std::atan2(-forward.x, -forward.z);
+	const XrQuaternionf yawOnly { 0, std::sin(yaw / 2), 0, std::cos(yaw / 2) };
+	const float pitch = hand == Right ? -0.12F : -0.6F;
+	pose.orientation = Multiply(yawOnly, { std::sin(pitch / 2), 0, 0, std::cos(pitch / 2) });
+	const XrVector3f offset = Rotate(yawOnly, { hand == Right ? 0.2F : -0.2F, -0.45F, -0.35F });
+	pose.position = { head.position.x + offset.x, head.position.y + offset.y, head.position.z + offset.z };
+	if (velocity != nullptr)
+		velocity->velocityFlags = 0;
+	return true;
+}
 
 XrAction CreateAction(const char *name, XrActionType type, bool perHand)
 {
@@ -319,18 +355,21 @@ bool InitVirtualPad()
 	return true;
 }
 
-bool RayToQuad(const XrPosef &aim, const XrPosef &screenPose, float quadWidth, float screenHeight, const SDL_Rect &quadRect, int &x, int &y);
+bool RayToQuad(const XrPosef &aim, const XrPosef &screenPose, float quadWidth, float screenHeight, const SDL_Rect &quadRect, int &x, int &y, float *hitDistance);
 
-/** Intersects the aim ray with the screen quad (or the second one). Returns game-surface pixel coordinates. */
-bool RayToScreen(const XrPosef &aim, float screenHeight, int &x, int &y)
+/**
+ * Intersects the aim ray with the screen quad (or the second one). Returns game-surface pixel
+ * coordinates, and how far along the ray the hit is.
+ */
+bool RayToScreen(const XrPosef &aim, float screenHeight, int &x, int &y, float *hitDistance = nullptr)
 {
-	if (RayToQuad(aim, screenPose, quadWidth, screenHeight, quadRect, x, y))
+	if (RayToQuad(aim, screenPose, quadWidth, screenHeight, quadRect, x, y, hitDistance))
 		return true;
 	return extraWidth > 0 && extraRect.w > 0
-	    && RayToQuad(aim, extraPose, extraWidth, extraWidth * static_cast<float>(extraRect.h) / static_cast<float>(extraRect.w), extraRect, x, y);
+	    && RayToQuad(aim, extraPose, extraWidth, extraWidth * static_cast<float>(extraRect.h) / static_cast<float>(extraRect.w), extraRect, x, y, hitDistance);
 }
 
-bool RayToQuad(const XrPosef &aim, const XrPosef &screenPose, float quadWidth, float screenHeight, const SDL_Rect &quadRect, int &x, int &y)
+bool RayToQuad(const XrPosef &aim, const XrPosef &screenPose, float quadWidth, float screenHeight, const SDL_Rect &quadRect, int &x, int &y, float *hitDistance)
 {
 	const XrVector3f direction = Rotate(aim.orientation, { 0, 0, -1 });
 	const XrVector3f normal = Rotate(screenPose.orientation, { 0, 0, 1 });
@@ -354,6 +393,8 @@ bool RayToQuad(const XrPosef &aim, const XrPosef &screenPose, float quadWidth, f
 	const float v = 0.5F - Dot(onScreen, Rotate(screenPose.orientation, { 0, 1, 0 })) / screenHeight;
 	if (u < 0 || u >= 1 || v < 0 || v >= 1)
 		return false;
+	if (hitDistance != nullptr)
+		*hitDistance = distance;
 	if (quadRect.w > 0) {
 		x = quadRect.x + static_cast<int>(u * static_cast<float>(quadRect.w));
 		y = quadRect.y + static_cast<int>(v * static_cast<float>(quadRect.h));
@@ -815,7 +856,7 @@ void UpdateInput(XrTime time, float screenHeight)
 	XrActionsSyncInfo syncInfo { XR_TYPE_ACTIONS_SYNC_INFO };
 	syncInfo.countActiveActionSets = 1;
 	syncInfo.activeActionSets = &activeSet;
-	if (xrSyncActions(session, &syncInfo) != XR_SUCCESS)
+	if (xrSyncActions(session, &syncInfo) != XR_SUCCESS && !DebugHands)
 		return; // Not focused (e.g. the system menu is open).
 
 	const XrVector2f leftStick = StickState(Left);
@@ -852,8 +893,9 @@ void UpdateInput(XrTime time, float screenHeight)
 	recenterDown = recenter;
 	automapDown = automap;
 
-	// The Frame's View button is the gamepad's Select. Held for a second it re-centres as the
-	// right stick's click does, with a buzz in both hands to say so.
+	// The Frame's View button. Held for a second it re-centres as the right stick's click does,
+	// with a buzz in both hands to say so. A short press is the gamepad's Select in the menus
+	// (back); in a game it closes what is open, or brings up the help with the controls.
 	const bool view = BoolState(viewAction);
 	if (view && !viewDown) {
 		viewSince = SDL_GetTicks();
@@ -866,30 +908,71 @@ void UpdateInput(XrTime time, float screenHeight)
 		Pulse(Left, 0.6F, 80);
 		Pulse(Right, 0.6F, 80);
 	}
+	if (!view && viewDown && !viewRecentered) {
+		if (!world3d)
+			backPulse = 6;
+		else if (HelpFlag)
+			HelpFlag = false;
+		else if (!UiOpen() && gbRunGame)
+			DisplayHelp();
+		else
+			escapePulse = 2;
+	}
 	viewDown = view;
 
-	// Right hand: pointer and weapon swing. While the left trigger casts, the left hand aims instead.
+	// Right hand: pointer and weapon swing. While the left trigger casts, the left hand aims
+	// instead. The left hand also points where the right one misses: at the right wrist, or at
+	// a screen or panel the right hand is not on.
 	XrPosef aim;
 	XrPosef leftAim;
 	XrSpaceVelocity velocity;
 	float speed = 0;
 	XrVector3f swingDirection { 0, 0, 0 };
 	worldPointerValid = false;
-	const bool leftValid = Locate(aimSpace[Left], time, leftAim);
-	const bool casting = world3d && leftValid && FloatState(triggerAction, Left) > (castingDown ? 0.3F : 0.6F);
-	if (Locate(aimSpace[Right], time, aim, &velocity)) {
-		pointerOnQuad = quadVisible && RayToScreen(aim, screenHeight, pointerX, pointerY);
-		if (!pointerOnQuad) {
-			pointerX = pointerY = -1;
-			if (world3d)
-				AimAtWorld(casting ? leftAim : aim);
-		}
-		if ((velocity.velocityFlags & XR_SPACE_VELOCITY_LINEAR_VALID_BIT) != 0) {
-			speed = std::sqrt(Dot(velocity.linearVelocity, velocity.linearVelocity));
-			swingDirection = velocity.linearVelocity;
-		}
-	} else {
+	laser = {};
+	const bool leftValid = LocateHand(Left, time, leftAim);
+	const bool rightValid = LocateHand(Right, time, aim, &velocity);
+	float hitDistance = 0;
+	// A bow being drawn keeps both hands for the bow, whatever panel they cross.
+	const bool panelsReachable = quadVisible && !drawingBow;
+	pointerOnQuad = rightValid && panelsReachable && RayToScreen(aim, screenHeight, pointerX, pointerY, &hitDistance);
+	leftPointing = !pointerOnQuad && leftValid && panelsReachable && (!world3d || uiMode || WristHud)
+	    && RayToScreen(leftAim, screenHeight, pointerX, pointerY, &hitDistance);
+	pointerOnQuad = pointerOnQuad || leftPointing;
+	const bool casting = world3d && leftValid && !leftPointing && FloatState(triggerAction, Left) > (castingDown ? 0.3F : 0.6F);
+	if (!pointerOnQuad) {
 		pointerX = pointerY = -1;
+		if (world3d && rightValid)
+			AimAtWorld(casting ? leftAim : aim);
+	}
+	if (rightValid && (velocity.velocityFlags & XR_SPACE_VELOCITY_LINEAR_VALID_BIT) != 0) {
+		speed = std::sqrt(Dot(velocity.linearVelocity, velocity.linearVelocity));
+		swingDirection = velocity.linearVelocity;
+	}
+	// The laser: to the spot on the screen or panel, or to what the hand aims at in the world.
+	// Over the screen and the panels, with nothing hit, it still goes a little way out.
+	const XrPosef &pointing = leftPointing || casting ? leftAim : aim;
+	const XrVector3f pointingAlong = Rotate(pointing.orientation, { 0, 0, -1 });
+	float laserLength = 0;
+	if (pointerOnQuad) {
+		laserLength = hitDistance;
+		laser.onQuad = true;
+	} else if (worldPointerValid) {
+		// The world is the tracking space turned and moved, never scaled, so the distance carries over.
+		float hand[3];
+		float handOrientation[4];
+		ToWorld(pointing, hand, handOrientation);
+		const float dx = worldPointerHit[0] - hand[0];
+		const float dy = worldPointerHit[1] - hand[1];
+		const float dz = worldPointerHit[2] - hand[2];
+		laserLength = std::sqrt(dx * dx + dy * dy + dz * dz);
+	} else if (rightValid && quadVisible && (!world3d || uiMode)) {
+		laserLength = 1.5F;
+	}
+	if (laserLength > 0 && (rightValid || leftPointing)) {
+		laser.visible = true;
+		laser.from = pointing.position;
+		laser.to = { pointing.position.x + pointingAlong.x * laserLength, pointing.position.y + pointingAlong.y * laserLength, pointing.position.z + pointingAlong.z * laserLength };
 	}
 
 	// Mouse motion switches the game to mouse controls, so hold it back while the
@@ -902,7 +985,7 @@ void UpdateInput(XrTime time, float screenHeight)
 	// something that has to be reached (item, object, townsperson, another player) is a plain
 	// click, and the character steps up to it. Anything else is an attack along the hand's
 	// aim, repeated while the trigger is held, which never moves the character.
-	const bool triggerDown = FloatState(triggerAction, Right) > (mouseLeftDown || clickingWorld || drawingBow ? 0.3F : 0.6F);
+	const bool triggerDown = FloatState(triggerAction, leftPointing ? Left : Right) > (mouseLeftDown || clickingWorld || drawingBow ? 0.3F : 0.6F);
 	// A bow is drawn with both hands: the right trigger closes by the left hand, the right hand
 	// pulls back and lets go. The arrow flies from the left hand along the line from the right one.
 	const bool bow = world3d && MyPlayer->UsesRangedWeapon() && leveltype != DTYPE_TOWN;
@@ -954,6 +1037,10 @@ void UpdateInput(XrTime time, float screenHeight)
 	} else if (world3d && !pointerOnQuad && !mouseLeftDown) {
 		const bool interact = worldPointerValid && pointerX >= 0
 		    && (pcursitem != -1 || ObjectUnderCursor != nullptr || PlayerUnderCursor != nullptr || (leveltype == DTYPE_TOWN && pcursmonst != -1));
+		// The beam turns gold on what the trigger picks up, opens or talks to, with a tick in the hand.
+		laser.active = interact;
+		if (interact && !pointerWasActive)
+			Pulse(Right, 0.2F, 10);
 		if (triggerDown && interact && !clickingWorld) {
 			clickingWorld = true;
 			SetMouseButton(mouseLeftDown, true, SDL_BUTTON_LEFT);
@@ -965,10 +1052,13 @@ void UpdateInput(XrTime time, float screenHeight)
 	}
 	if (!triggerDown)
 		clickingWorld = false;
+	pointerWasActive = laser.active;
 	if (world3d) {
 		// The left hand casts the spell held ready: the right mouse button, aimed by the left hand.
+		// On a panel the right grip is the right button, as on the 2D screen: drink, read, use.
 		castingDown = casting;
-		SetMouseButton(mouseRightDown, casting && !speedbookOpen, SDL_BUTTON_RIGHT);
+		const bool panelRightClick = pointerOnQuad && !leftPointing && FloatState(squeezeAction, Right) > (mouseRightDown ? 0.3F : 0.6F);
+		SetMouseButton(mouseRightDown, (casting && !speedbookOpen) || panelRightClick, SDL_BUTTON_RIGHT);
 		// The right grip takes hold of what is within reach: a click on it, as the mouse would.
 		const bool grab = FloatState(squeezeAction, Right) > (grabDown ? 0.3F : 0.6F);
 		if (grab && !grabDown && !pointerOnQuad) {
@@ -996,7 +1086,7 @@ void UpdateInput(XrTime time, float screenHeight)
 		}
 		grabDown = grab;
 		// The speedbook: held open with the left grip, the left stick picks, letting go sets it.
-		const bool book = FloatState(squeezeAction, Left) > (speedbookOpen ? 0.3F : 0.6F);
+		const bool book = !leftPointing && FloatState(squeezeAction, Left) > (speedbookOpen ? 0.3F : 0.6F);
 		if (book && !speedbookOpen) {
 			ring = {};
 			const Player &me = *MyPlayer;
@@ -1048,6 +1138,9 @@ void UpdateInput(XrTime time, float screenHeight)
 		SetMouseButton(mouseRightDown, FloatState(squeezeAction, Right) > (mouseRightDown ? 0.3F : 0.6F), SDL_BUTTON_RIGHT);
 	}
 	SetKey(menuDown, BoolState(menuAction), SDLK_ESCAPE);
+	SetKey(viewEscapeDown, escapePulse > 0, SDLK_ESCAPE);
+	if (escapePulse > 0)
+		escapePulse--;
 
 	// A swing only asks for the game's own primary action; hit chance, damage and
 	// attack speed stay entirely with the original combat code.
@@ -1130,7 +1223,21 @@ void UpdateInput(XrTime time, float screenHeight)
 	// Everything else goes through the stock gamepad scheme (see padmapper defaults in diablo.cpp).
 	SDL_JoystickSetVirtualAxis(virtualPad, SDL_CONTROLLER_AXIS_LEFTX, AxisValue(moveX));
 	SDL_JoystickSetVirtualAxis(virtualPad, SDL_CONTROLLER_AXIS_LEFTY, AxisValue(moveY));
-	if (world3d) {
+	// On the Frame the menus, the game menu, shops and dialogs take A to confirm and B to go
+	// back, as the gamepad's A and B do there (and every other game on it). In play A and B
+	// stay the primary and secondary actions. The switch waits for both to be up: an A that
+	// opens a shop must not also buy the first thing in it.
+	static bool menuButtons;
+	if (!BoolState(aAction) && !BoolState(bAction))
+		menuButtons = frameControllers && (!world3d || InGameMenu() || QuestLogIsOpen);
+	if (menuButtons) {
+		SDL_JoystickSetVirtualAxis(virtualPad, SDL_CONTROLLER_AXIS_TRIGGERLEFT, TriggerValue(0));
+		SDL_JoystickSetVirtualAxis(virtualPad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT, TriggerValue(0));
+		SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_A, BoolState(aAction) ? 1 : 0); // Confirm
+		SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_B, BoolState(bAction) ? 1 : 0); // Back
+		SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_X, !world3d && BoolState(xAction) ? 1 : 0); // Delete (a hero)
+		SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_Y, 0);
+	} else if (world3d) {
 		// In the world the left trigger casts and the left grip holds the speedbook (above); the
 		// panels come up on the left hand's buttons: Y the inventory, X the character.
 		SDL_JoystickSetVirtualAxis(virtualPad, SDL_CONTROLLER_AXIS_TRIGGERLEFT, TriggerValue(BoolState(xAction) ? 1.F : 0.F));  // Character
@@ -1143,8 +1250,10 @@ void UpdateInput(XrTime time, float screenHeight)
 		SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_X, BoolState(xAction) ? 1 : 0);                            // Spell action
 		SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_A, BoolState(yAction) ? 1 : 0);                            // Cancel / spell list
 	}
-	SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_B, (BoolState(aAction) || (swinging && !world3d)) ? 1 : 0);              // Primary action
-	SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_Y, BoolState(bAction) ? 1 : 0);                            // Secondary action
+	if (!menuButtons) {
+		SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_B, (BoolState(aAction) || (swinging && !world3d)) ? 1 : 0); // Primary action
+		SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_Y, BoolState(bAction) ? 1 : 0);                             // Secondary action
+	}
 	SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_LEFTSTICK, automapPulse > 0 ? 1 : 0); // Automap
 	if (automapPulse > 0)
 		automapPulse--;
@@ -1152,7 +1261,11 @@ void UpdateInput(XrTime time, float screenHeight)
 	manaPotion = manaPotion || BoolState(bumperAction, handPath[Right]);
 	SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_LEFTSHOULDER, healthPotion ? 1 : 0);
 	SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, manaPotion ? 1 : 0);
-	SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_BACK, (hotspellModifier || view) ? 1 : 0);
+	// View's short press reaches the game as Select only on release, so holding it to re-centre
+	// does not open the game menu as well.
+	SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_BACK, (hotspellModifier || backPulse > 0) ? 1 : 0);
+	if (backPulse > 0)
+		backPulse--;
 	// The D-pad is the gamepad's wherever the game shows its own interface: menus, the inventory's
 	// slots, shops. Out in the world it would walk the character a tile at a time under the player.
 	const bool padNavigates = !world3d || UiOpen();
@@ -1163,4 +1276,51 @@ void UpdateInput(XrTime time, float screenHeight)
 }
 
 } // namespace vr
+
+const std::vector<const char *> &VrControlsHelp()
+{
+	static const std::vector<const char *> frame {
+		"$Steam Frame controls:",
+		"Left stick: walk. Right stick: turn.",
+		"Right trigger: point and click. The beam turns gold on anything the trigger picks up, opens or talks to.",
+		"Right grip: take hold of a door, chest, lever or item within reach. On a panel it is the right mouse button: drink a potion, read a scroll.",
+		"A: attack or talk. B: pick up, open, use what is next to you. Swing the right hand to hit a monster next to you.",
+		"Left trigger: cast the readied spell where the left hand points. Hold the left grip for the speedbook, choose with the left stick.",
+		"Y: inventory. X: character. Bumpers: health and mana potion. Left stick click: automap.",
+		"View: this help, or close what is open. Hold View: recentre. Menu: game menu.",
+		"",
+		"$Menus:",
+		"Point and pull the trigger, or use the D-pad. A confirms, B goes back.",
+		"",
+		"$Saving:",
+		"Press Menu and choose Save Game. Diablo only saves when you do, so save before you quit.",
+		"",
+	};
+	static const std::vector<const char *> frameWithWrists = [] {
+		std::vector<const char *> text = frame;
+		text.insert(text.end() - 3, {
+		                                "$Life, mana and the belt:",
+		                                "Life, the menu buttons and belt slots 1 to 4 are on the left wrist; mana, belt slots 5 to 8 and the spell buttons on the right. Point at one wrist with the other hand and pull the trigger to press what is on it.",
+		                                "",
+		                            });
+		return text;
+	}();
+	static const std::vector<const char *> touch {
+		"$VR controls:",
+		"Left stick: walk. Right stick: turn, up and down for potions.",
+		"Right trigger: point and click. The beam turns gold on anything the trigger picks up, opens or talks to.",
+		"Right grip: take hold of a door, chest, lever or item within reach. On a panel it is the right mouse button.",
+		"A: attack or talk. B: pick up, open, use what is next to you. Swing the right hand to hit a monster next to you.",
+		"Left trigger: cast the readied spell where the left hand points. Hold the left grip for the speedbook.",
+		"Y: inventory. X: character. Left stick click: automap. Menu: game menu.",
+		"",
+		"$Saving:",
+		"Press Menu and choose Save Game. Diablo only saves when you do, so save before you quit.",
+		"",
+	};
+	if (!vr::frameControllers)
+		return touch;
+	return vr::WristHud ? frameWithWrists : frame;
+}
+
 } // namespace devilution
