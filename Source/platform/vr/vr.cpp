@@ -42,6 +42,7 @@
 #include "stores.h"
 #include "utils/display.h"
 #include "utils/log.hpp"
+#include "utils/paths.h"
 #include "utils/ui_fwd.h"
 
 namespace devilution {
@@ -115,6 +116,40 @@ XrQuaternionf Facing(float dx, float dz, float tilt)
 	return Multiply({ 0, std::sin(yaw / 2), 0, std::cos(yaw / 2) }, { std::sin(tilt / 2), 0, 0, std::cos(tilt / 2) });
 }
 
+/** Where the main panel splits between the wrists: belt slot 5 starts here (inv.cpp InvRect). */
+constexpr int WristSplit = 321;
+/** The HUD strip is on the wrists this frame (DEVILUTIONX_VR_WRIST_HUD). */
+bool wristsPlaced;
+
+/**
+ * The HUD strip in two halves, one on each wrist, turned to the eyes: life, the left of the belt
+ * and the menu buttons on the left; mana, the right of the belt and the spell on the right.
+ * False while a hand is not tracked.
+ */
+bool PlaceWrists(XrTime time, const XrPosef &head)
+{
+	XrPosef hands[2];
+	if (!LocateHand(Left, time, hands[Left]) || !LocateHand(Right, time, hands[Right]))
+		return false;
+	const Rectangle &panel = GetMainPanel();
+	const float metresPerPixel = WristWidth * 2 / static_cast<float>(panel.size.width);
+	XrPosef *const poses[2] = { &screenPose, &extraPose };
+	for (const Hand hand : { Left, Right }) {
+		// Above the back of the wrist, a hand's length behind where the controller points from.
+		const XrVector3f offset = Rotate(hands[hand].orientation, { 0, 0.05F, 0.14F });
+		XrPosef &pose = *poses[hand];
+		pose.position = { hands[hand].position.x + offset.x, hands[hand].position.y + offset.y, hands[hand].position.z + offset.z };
+		const float dx = head.position.x - pose.position.x;
+		const float dy = head.position.y - pose.position.y;
+		const float dz = head.position.z - pose.position.z;
+		pose.orientation = Facing(dx, dz, -std::atan2(dy, std::sqrt(dx * dx + dz * dz)));
+	}
+	quadWidth = metresPerPixel * static_cast<float>(WristSplit);
+	extraWidth = metresPerPixel * static_cast<float>(panel.size.width - WristSplit);
+	extraRect = { panel.position.x + WristSplit, panel.position.y, panel.size.width - WristSplit, panel.size.height };
+	return true;
+}
+
 /** Places a held panel for this frame (it moves with the body or the hand). False when it cannot be placed. */
 bool PlaceHeld(XrTime time, const XrPosef &head)
 {
@@ -174,6 +209,7 @@ void PlaceScreen(XrTime time)
 	}
 	extraWidth = 0;
 	clearBlack = {};
+	wristsPlaced = false;
 	const XrVector3f forward = Rotate(head.orientation, { 0, 0, -1 });
 	const float yaw = std::atan2(-forward.x, -forward.z);
 	const XrQuaternionf yawOnly { 0, std::sin(yaw / 2), 0, std::cos(yaw / 2) };
@@ -216,6 +252,8 @@ void PlaceScreen(XrTime time)
 		head.position.y - drop,
 		head.position.z - std::cos(yaw) * distance,
 	};
+	if (hud && WristHud)
+		wristsPlaced = PlaceWrists(time, head);
 	if (anchorPending)
 		headAnchor = head.position;
 	anchorPending = false;
@@ -251,6 +289,28 @@ void UpdateFocusPause()
 		focusPaused = false;
 		LogVerbose("VR: in focus again (pause mode {})", PauseMode);
 	}
+}
+
+/**
+ * The first time a game is played in the headset (on this install), the help with the controls
+ * comes up by itself a couple of seconds in.
+ */
+void ShowHelpOnce()
+{
+	static const bool unattended = Knob("DEVILUTIONX_VR_FORCE_RENDER", 0) != 0 || SDL_getenv("DEVILUTIONX_VR_AUTOSTART") != nullptr || VrBenchLevel >= 0;
+	static bool done = unattended;
+	static int frames;
+	if (done || !world3d || !gbRunGame || UiOpen() || ++frames < 150)
+		return;
+	done = true;
+	const std::string marker = paths::PrefPath() + "vr-help-shown";
+	if (SDL_RWops *file = SDL_RWFromFile(marker.c_str(), "rb"); file != nullptr) {
+		SDL_RWclose(file);
+		return;
+	}
+	if (SDL_RWops *file = SDL_RWFromFile(marker.c_str(), "wb"); file != nullptr)
+		SDL_RWclose(file);
+	DisplayHelp();
 }
 
 /** Anything that needs the 2D frame in view: panels, dialogs, shops, menus, the automap. */
@@ -468,15 +528,17 @@ void VrPresent(SDL_Surface *surface)
 	if (nowHeld != held)
 		screenPlaced = false;
 	held = nowHeld;
-	// A held panel moves with the body or the hand: placed every frame.
-	if (!screenPlaced || held != Held::None)
+	ShowHelpOnce();
+	// A held panel and the wrists move with the body or the hand: placed every frame.
+	if (!screenPlaced || held != Held::None || (world3d && !uiMode && WristHud))
 		PlaceScreen(frameState.predictedDisplayTime);
 
 	XrCompositionLayerQuad quad { XR_TYPE_COMPOSITION_LAYER_QUAD };
 	XrCompositionLayerProjection projection { XR_TYPE_COMPOSITION_LAYER_PROJECTION };
 	XrCompositionLayerProjectionView projectionViews[2];
 	XrCompositionLayerQuad extra { XR_TYPE_COMPOSITION_LAYER_QUAD };
-	const XrCompositionLayerBaseHeader *layers[3];
+	XrCompositionLayerQuad laserQuads[2];
+	const XrCompositionLayerBaseHeader *layers[5];
 	uint32_t layerCount = 0;
 	// Debug aid: a headset nobody wears is told not to render. See RenderWorld.
 	static const bool forceRender = Knob("DEVILUTIONX_VR_FORCE_RENDER", 0) != 0;
@@ -491,7 +553,7 @@ void VrPresent(SDL_Surface *surface)
 				quadRect = clipped;
 		} else if (!uiMode) {
 			const Rectangle &panel = GetMainPanel();
-			const SDL_Rect panelRect { panel.position.x, panel.position.y, panel.size.width, panel.size.height };
+			const SDL_Rect panelRect { panel.position.x, panel.position.y, wristsPlaced ? WristSplit : panel.size.width, panel.size.height };
 			SDL_Rect clipped;
 			if (SDL_IntersectRect(&panelRect, &quadRect, &clipped) == SDL_TRUE)
 				quadRect = clipped;
@@ -522,7 +584,7 @@ void VrPresent(SDL_Surface *surface)
 		}
 		if (quadVisible)
 			layers[layerCount++] = reinterpret_cast<XrCompositionLayerBaseHeader *>(&quad);
-		if (quadVisible && extraWidth > 0 && extraRect.w > 0 && layerCount < 3) {
+		if (quadVisible && extraWidth > 0 && extraRect.w > 0) {
 			extra = quad;
 			extra.layerFlags = 0;
 			extra.subImage.imageRect.offset = { extraRect.x, extraRect.y };
@@ -531,6 +593,10 @@ void VrPresent(SDL_Surface *surface)
 			extra.size = { extraWidth, extraWidth * static_cast<float>(extraRect.h) / static_cast<float>(extraRect.w) };
 			layers[layerCount++] = reinterpret_cast<XrCompositionLayerBaseHeader *>(&extra);
 		}
+		// The laser last, over the screen and every panel.
+		const uint32_t laserCount = LaserLayers(frameState.predictedDisplayTime, laserQuads);
+		for (uint32_t i = 0; i < laserCount; i++)
+			layers[layerCount++] = reinterpret_cast<XrCompositionLayerBaseHeader *>(&laserQuads[i]);
 	}
 
 	ProfileEndFrame();
@@ -542,6 +608,13 @@ void VrPresent(SDL_Surface *surface)
 	const XrResult result = xrd3d::EndFrame(session, endInfo);
 	frameEnded = SDL_GetPerformanceCounter();
 	static XrResult lastResult = XR_SUCCESS;
+	// With DEVILUTIONX_VR_DEBUG_HANDS the layers the laser and the wrists add are logged as they come and go.
+	static uint32_t lastLayerCount;
+	static const bool logLayers = Knob("DEVILUTIONX_VR_DEBUG_HANDS", 0) != 0;
+	if (logLayers && layerCount != lastLayerCount) {
+		LogInfo("VR: {} layer(s), xrEndFrame -> {} (laser {}, on a panel {}, wrists {})", layerCount, static_cast<int>(result), laser.visible, laser.onQuad, wristsPlaced);
+		lastLayerCount = layerCount;
+	}
 	if (result != lastResult) {
 		LogInfo("VR: xrEndFrame -> {} ({} layer(s), {}x{})", static_cast<int>(result), layerCount, swapchainWidth, swapchainHeight);
 		lastResult = result;

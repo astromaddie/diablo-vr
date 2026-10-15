@@ -986,8 +986,12 @@ void ActorsAddToScene(Scene &scene, const VrHandPose &leftHand, const VrHandPose
 		AddGauntlet(scene, rightHand, 1);
 		const Player &me = *MyPlayer;
 		// Life on the left wrist, mana on the right, as the game's orbs are on the left and right.
-		AddVial(scene, leftHand, me._pMaxHP > 0 ? static_cast<float>(me._pHitPoints) / static_cast<float>(me._pMaxHP) : 0, { 0.42F, 0.02F, 0.02F });
-		AddVial(scene, rightHand, me._pMaxMana > 0 ? static_cast<float>(me._pMana) / static_cast<float>(me._pMaxMana) : 0, { 0.03F, 0.05F, 0.45F });
+		// The wrist display (DEVILUTIONX_VR_WRIST_HUD) puts the game's own orbs there instead.
+		static const bool wristHud = Knob("DEVILUTIONX_VR_WRIST_HUD", 0) != 0;
+		if (!wristHud) {
+			AddVial(scene, leftHand, me._pMaxHP > 0 ? static_cast<float>(me._pHitPoints) / static_cast<float>(me._pMaxHP) : 0, { 0.42F, 0.02F, 0.02F });
+			AddVial(scene, rightHand, me._pMaxMana > 0 ? static_cast<float>(me._pMana) / static_cast<float>(me._pMaxMana) : 0, { 0.03F, 0.05F, 0.45F });
+		}
 		AddBelt(scene);
 		AddSpellHand(scene, leftHand);
 		AddHeldPanel(scene);
@@ -996,7 +1000,9 @@ void ActorsAddToScene(Scene &scene, const VrHandPose &leftHand, const VrHandPose
 		AddHeldItem(scene, mainHand, rightHand);
 	if (hands)
 		AddHeldItem(scene, mainHand._itype == ItemType::Shield ? mainHand : offHand, leftHand);
-	if (hands && pointerValid && rightHand.valid)
+	// The laser is normally a layer over everything (xr_laser.cpp); DEVILUTIONX_VR_LASER_LAYER=0 draws it here.
+	static const bool laserInWorld = Knob("DEVILUTIONX_VR_LASER_LAYER", 1) == 0;
+	if (hands && laserInWorld && pointerValid && rightHand.valid)
 		AddPointer(scene, rightHand, pointerHit);
 	FeedbackAddToScene(scene, hands && pointerValid && rightHand.valid, pointerHit);
 

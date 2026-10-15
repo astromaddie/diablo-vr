@@ -591,6 +591,7 @@ void Cleanup()
 	}
 	swapchainImages.clear();
 	ReleaseMirror();
+	ReleaseLaser();
 	ProfileRelease();
 	if (session != XR_NULL_HANDLE)
 		xrd3d::DestroySession(session); // Destroys the spaces and swapchains with it.
