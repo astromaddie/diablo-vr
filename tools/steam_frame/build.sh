@@ -15,7 +15,7 @@
 #            launcher (VR=ON adds the DXVK libraries and vrassets/). Writes BUILD-METADATA.json
 #            and fails if the ABI check or the package allowlist does
 #   smoke    not in the default list. Runs the package under Xvfb with the user's DIABDAT.MPQ
-#            mounted read-only (DIABDAT=path, default ~/Downloads/DIABDAT.MPQ), waits for the
+#            mounted read-only (DIABDAT=/path/to/DIABDAT.MPQ), waits for the
 #            main menu, saves build-frame/smoke/menu.png and checks that SIGTERM ends the game
 #   render   not in the default list. Needs a VR=ON package. Draws real levels with the VR mode's
 #            headset-free renderer on lavapipe (software Vulkan) and leaves the pictures in
@@ -177,8 +177,8 @@ step_package() {
 # Runs the package under Xvfb, with the user's own DIABDAT.MPQ mounted read-only (it is never
 # copied into the repo), and leaves build-frame/smoke/menu.png.
 step_smoke() {
-	local data="${DIABDAT:-$HOME/Downloads/DIABDAT.MPQ}"
-	[ -f "$data" ] || { echo "no DIABDAT.MPQ at $data (set DIABDAT=)" >&2; exit 1; }
+	local data="${DIABDAT:-}"
+	[ -f "$data" ] || { echo "set DIABDAT=/path/to/your/DIABDAT.MPQ (it is mounted read-only, never copied)" >&2; exit 1; }
 	[ -x "$repo/$out/package/DiabloVR/devilutionx" ] || { echo "no package: run the package step first" >&2; exit 1; }
 	docker run --rm -v "$repo":/src -v "$data":/diabdat/DIABDAT.MPQ:ro -w /src "$image" bash /src/tools/steam_frame/smoke-in-container.sh
 }
@@ -186,8 +186,8 @@ step_smoke() {
 # Draws real levels with the VR mode's headset-free renderer on software Vulkan and leaves the
 # pictures in build-frame/render/. Needs a package built with VR=ON. LEVELS="0 2" picks the levels.
 step_render() {
-	local data="${DIABDAT:-$HOME/Downloads/DIABDAT.MPQ}"
-	[ -f "$data" ] || { echo "no DIABDAT.MPQ at $data (set DIABDAT=)" >&2; exit 1; }
+	local data="${DIABDAT:-}"
+	[ -f "$data" ] || { echo "set DIABDAT=/path/to/your/DIABDAT.MPQ (it is mounted read-only, never copied)" >&2; exit 1; }
 	[ -x "$repo/$out/package/DiabloVR/devilutionx" ] || { echo "no package: run the package step first" >&2; exit 1; }
 	docker run --rm -v "$repo":/src -v "$data":/diabdat/DIABDAT.MPQ:ro -w /src \
 		-e LEVELS="${LEVELS:-0 2}" -e RENDER_TIMEOUT="${RENDER_TIMEOUT:-600}" -e SETTINGS="${SETTINGS:-}" "$image" bash /src/tools/steam_frame/render-in-container.sh

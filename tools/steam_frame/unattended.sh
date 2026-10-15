@@ -25,12 +25,12 @@
 #            Runtime container, with the title's own SteamVR settings (refresh rate) and with
 #            controllers. Settings for the run travel in the launcher's one-shot file.
 #
-# The headset is shared, and SteamVR runs one VR application at a time: starting ours ends
-# whatever else is running, in the face of whoever wears it. So every run first checks that no
-# other Steam title is running and that the headset is in standby (nobody has it on), and stops
-# if not. FRAME_LOCK=<name> also requires that the booking in ~/code/.frame-lock is held under
-# that name. A session launched from here has no controllers; SteamVR only gives them to titles
-# started from the Steam library.
+# SteamVR runs one VR application at a time: starting ours ends whatever else is running, in the
+# face of whoever wears the headset. So every run first checks that no other Steam title is
+# running and that the headset is in standby (nobody has it on), and stops if not. If the headset
+# is shared, FRAME_GUARD_CMD can name a command of your own (a booking check, say) that has to
+# succeed before each run too. A session launched over SSH has no controllers; SteamVR only gives
+# them to titles started from the Steam library.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -51,13 +51,10 @@ remote() {
 
 # Prints nothing and returns 0 when the Frame is free; otherwise prints the reason.
 guard() {
-	local lock="$HOME/.claude/skills/steam-frame-vr-port/scripts/frame-lock.sh" state
-	if [[ -n "${FRAME_LOCK:-}" && -x "$lock" ]]; then
-		state="$("$lock" status)"
-		[[ "$state" == "HELD by $FRAME_LOCK "* ]] || {
-			echo "the Frame is not booked by $FRAME_LOCK: ${state%%$'\n'*}"
-			return 1
-		}
+	local state
+	if [[ -n "${FRAME_GUARD_CMD:-}" ]] && ! state="$(bash -c "$FRAME_GUARD_CMD" 2>&1)"; then
+		echo "FRAME_GUARD_CMD said no: ${state%%$'\n'*}"
+		return 1
 	fi
 	state="$(remote '
 		running="$(ps -eo args | grep -E "reaper SteamLaunch|lepton-dev" | grep -v grep | head -3)"

@@ -1119,7 +1119,7 @@ if(DEVILUTIONX_VR)
     target_link_libraries(libdevilutionx PUBLIC OpenXR::openxr_loader d3d11 dxgi d3dcompiler)
   else()
     # No Direct3D off Windows: the renderer's D3D11 is dxvk-native (on Vulkan) and its HLSL
-    # compiler is vkd3d's. tools/steam_frame/build.sh builds both; see docs/VR_ARCHITECTURE.md.
+    # compiler is vkd3d's. tools/steam_frame/build.sh builds both; see docs/vr/steam-frame.md.
     set(DEVILUTIONX_VR_DXVK_PREFIX "${PROJECT_SOURCE_DIR}/build-frame/dxvk-install" CACHE PATH "dxvk-native install prefix (d3d11 and dxgi)")
     set(DEVILUTIONX_VR_VKD3D_PREFIX "/opt/vkd3d" CACHE PATH "vkd3d install prefix (static libvkd3d-shader)")
     if(NOT EXISTS "${DEVILUTIONX_VR_DXVK_PREFIX}/include/dxvk/d3d11.h")
