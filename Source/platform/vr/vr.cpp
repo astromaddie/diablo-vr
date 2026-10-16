@@ -232,6 +232,7 @@ void PlaceScreen(XrTime time)
 	XrPosef head;
 	if (!Locate(viewSpace, time, head))
 		return;
+	wristsPlaced = false;
 	if (held != Held::None) {
 		screenPlaced = PlaceHeld(time, head);
 		if (screenPlaced)
@@ -239,7 +240,6 @@ void PlaceScreen(XrTime time)
 	}
 	extraWidth = 0;
 	clearBlack = {};
-	wristsPlaced = false;
 	const XrVector3f forward = Rotate(head.orientation, { 0, 0, -1 });
 	const float yaw = std::atan2(-forward.x, -forward.z);
 	const XrQuaternionf yawOnly { 0, std::sin(yaw / 2), 0, std::cos(yaw / 2) };
@@ -648,11 +648,13 @@ void VrPresent(SDL_Surface *surface)
 	frameEnded = SDL_GetPerformanceCounter();
 	static XrResult lastResult = XR_SUCCESS;
 	// With DEVILUTIONX_VR_DEBUG_HANDS the layers the laser and the wrists add are logged as they come and go.
-	static uint32_t lastLayerCount;
+	static int lastLayers = -1;
 	static const bool logLayers = Knob("DEVILUTIONX_VR_DEBUG_HANDS", 0) != 0;
-	if (logLayers && layerCount != lastLayerCount) {
-		LogInfo("VR: {} layer(s), xrEndFrame -> {} (laser {}, on a panel {}, wrists {}, map arrow {})", layerCount, static_cast<int>(result), laser.visible, laser.onQuad, wristsPlaced, held == Held::Parchment && mapArrow.visible);
-		lastLayerCount = layerCount;
+	const bool arrowShown = held == Held::Parchment && mapArrow.visible;
+	const int layersNow = static_cast<int>(layerCount) | (laser.visible ? 16 : 0) | (laser.onQuad ? 32 : 0) | (wristsPlaced ? 64 : 0) | (arrowShown ? 128 : 0) | (static_cast<int>(held) << 8);
+	if (logLayers && layersNow != lastLayers) {
+		LogInfo("VR: {} layer(s), xrEndFrame -> {} (laser {}, on a panel {}, wrists {}, held {}, map arrow {})", layerCount, static_cast<int>(result), laser.visible, laser.onQuad, wristsPlaced, static_cast<int>(held), arrowShown);
+		lastLayers = layersNow;
 	}
 	if (result != lastResult) {
 		LogInfo("VR: xrEndFrame -> {} ({} layer(s), {}x{})", static_cast<int>(result), layerCount, swapchainWidth, swapchainHeight);
