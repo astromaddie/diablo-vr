@@ -77,6 +77,16 @@ void VrWorldPlayerPosition(float &x, float &z)
 	z = position.z;
 }
 
+bool VrWorldBuiltDoorway(int index, int &tileX, int &tileY, bool &alongX)
+{
+	Point tile;
+	if (!LevelBuiltDoorway(index, tile, alongX))
+		return false;
+	tileX = tile.x;
+	tileY = tile.y;
+	return true;
+}
+
 bool VrWorldCanStand(float x, float z)
 {
 	// A person-sized footprint, so the camera cannot be pressed into a wall.

@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "diablo.h"
@@ -140,10 +141,37 @@ void UpdateScene(float yaw, float pitch, float position[3], float orientation[4]
 			LogInfo("VR: debug camera at monster {} ({}, {}): {}", debugMonster, monster.position.tile.x, monster.position.tile.y, found ? "placed" : "no open spot");
 		logged = true;
 	}
+	// DEVILUTIONX_VR_DEBUG_OBJECT=doorway: look straight at the level's n-th doorway built in 3D
+	// (DEVILUTIONX_VR_DEBUG_DOORWAY=<n>, from 0) from about two tiles out, to see the walls beside it.
+	static const char *const objectKind = SDL_getenv("DEVILUTIONX_VR_DEBUG_OBJECT");
+	if (objectKind != nullptr && std::string(objectKind) == "doorway" && leveltype != DTYPE_TOWN) {
+		static const int index = static_cast<int>(Knob("DEVILUTIONX_VR_DEBUG_DOORWAY", 0));
+		int tileX;
+		int tileY;
+		bool alongX;
+		if (VrWorldBuiltDoorway(index, tileX, tileY, alongX)) {
+			const float tile = VrWorldTileSize();
+			const float cx = (static_cast<float>(tileX) + 0.5F) * tile;
+			const float cz = (static_cast<float>(tileY) + 0.5F) * tile;
+			for (const float side : { -1.F, 1.F }) {
+				const float x = cx + (alongX ? side * 2.4F * tile : 0);
+				const float z = cz + (alongX ? 0 : side * 2.4F * tile);
+				if (VrWorldCanStand(x, z)) {
+					worldOrigin[0] = x;
+					worldOrigin[2] = z;
+					yaw = std::atan2(-(cx - x), -(cz - z));
+					break;
+				}
+			}
+			static bool logged;
+			if (!logged)
+				LogInfo("VR: debug camera at doorway {} ({}, {}), level type {}", index, tileX, tileY, static_cast<int>(leveltype));
+			logged = true;
+		}
+	}
 	// DEVILUTIONX_VR_DEBUG_OBJECT=chest, sarc or door: look at the level's first one from about two
 	// tiles away, and open it 200 frames in the way the game does, to see it open.
-	static const char *const objectKind = SDL_getenv("DEVILUTIONX_VR_DEBUG_OBJECT");
-	if (objectKind != nullptr) {
+	if (objectKind != nullptr && std::string(objectKind) != "doorway") {
 		static Object *watched;
 		static float spot[2];
 		static int frames;

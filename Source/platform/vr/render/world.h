@@ -77,6 +77,9 @@ float VrWorldTileSize();
 /** Whether a person can stand at this world position (walkable tiles). */
 bool VrWorldCanStand(float x, float z);
 
+/** The level's `index`-th doorway built in 3D, for debug cameras. False when it has fewer. */
+bool VrWorldBuiltDoorway(int index, int &tileX, int &tileY, bool &alongX);
+
 /** Whether the character is free to be moved (standing or walking, not in a swing, a cast or a blow). */
 bool VrWorldPlayerCanGlide();
 

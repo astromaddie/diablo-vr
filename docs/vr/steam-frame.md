@@ -132,7 +132,10 @@ The bindings are only suggested when the runtime has `XR_VALVE_frame_controller_
   They get the plainest of the level's common wall faces. The cathedral has none without an arch,
   since its walls are painted as a blind arcade, so there that face is made from the most common
   one: below its ledge every row repeats the two brick courses under it.
-  `DEVILUTIONX_VR_DEBUG_WALLS=<folder>` saves every wall and floor texture of a level there.
+  `DEVILUTIONX_VR_DEBUG_WALLS=<folder>` saves every wall and floor texture of a level there, and
+  `DEVILUTIONX_VR_DEBUG_OBJECT=doorway` with `DEVILUTIONX_VR_DEBUG_DOORWAY=<n>` has the
+  headset-free renderer look straight at a level's n-th built doorway. Checked that way: the
+  cathedral (level 2), the catacombs (6) and the caves (10). Hell (14) has no built doorways.
 - The automap held in the left hand is placed so that where the player is on it sits just over
   the hand, with a big gold arrow there (a quad layer over the map) pointing where the head
   looks. Before, the map was half a metre wide above the hand with the game's small arrow in its
