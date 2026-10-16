@@ -33,6 +33,7 @@
 #include "levels/tile_properties.hpp"
 #include "minitext.h"
 #include "msg.h"
+#include "objects.h"
 #include "options.h"
 #include "panels/quest_log.hpp"
 #include "platform/vr/render/world.h"
@@ -289,6 +290,40 @@ void PlaceScreen(XrTime time)
 		headAnchor = head.position;
 	anchorPending = false;
 	screenPlaced = true;
+}
+
+/**
+ * The item card: pointing at an item, an object, a monster or a townsperson in the world shows
+ * the game's description of it (the info box of the main panel) on a card just above it, turned
+ * to the eyes and as large to them wherever it is. `frame` is the 2D frame's layer, to copy.
+ */
+bool PlaceItemCard(XrTime time, const XrCompositionLayerQuad &frame, XrCompositionLayerQuad &card)
+{
+	if (!*Settings().itemCards || !world3d || uiMode || !laser.visible || laser.onQuad || !worldPointerValid || InfoString.empty())
+		return false;
+	if (pcursitem == -1 && ObjectUnderCursor == nullptr && PlayerUnderCursor == nullptr && pcursmonst == -1)
+		return false;
+	XrPosef head;
+	if (!Locate(viewSpace, time, head))
+		return false;
+	const Rectangle &panel = GetMainPanel();
+	const SDL_Rect box { panel.position.x + InfoBoxRect.position.x, panel.position.y + InfoBoxRect.position.y, InfoBoxRect.size.width, InfoBoxRect.size.height };
+	const float dx = laser.to.x - head.position.x;
+	const float dy = laser.to.y - head.position.y;
+	const float dz = laser.to.z - head.position.z;
+	const float away = std::sqrt(dx * dx + dy * dy + dz * dz);
+	const float width = std::clamp(0.3F * away, 0.35F, 1.4F);
+	card = frame;
+	card.layerFlags = 0;
+	card.subImage.imageRect.offset = { box.x, box.y };
+	card.subImage.imageRect.extent = { box.w, box.h };
+	card.size = { width, width * static_cast<float>(box.h) / static_cast<float>(box.w) };
+	card.pose.position = { laser.to.x, laser.to.y + 0.25F + card.size.height, laser.to.z };
+	const float tx = head.position.x - card.pose.position.x;
+	const float ty = head.position.y - card.pose.position.y;
+	const float tz = head.position.z - card.pose.position.z;
+	card.pose.orientation = Facing(tx, tz, -std::atan2(ty, std::sqrt(tx * tx + tz * tz)));
+	return true;
 }
 
 /** The game is held paused because the session lost the wearer's attention. */
@@ -576,7 +611,8 @@ void VrPresent(SDL_Surface *surface)
 	XrCompositionLayerQuad extra { XR_TYPE_COMPOSITION_LAYER_QUAD };
 	XrCompositionLayerQuad laserQuads[2];
 	XrCompositionLayerQuad arrowQuad;
-	const XrCompositionLayerBaseHeader *layers[6];
+	XrCompositionLayerQuad card { XR_TYPE_COMPOSITION_LAYER_QUAD };
+	const XrCompositionLayerBaseHeader *layers[7];
 	uint32_t layerCount = 0;
 	// Debug aid: a headset nobody wears is told not to render. See RenderWorld.
 	static const bool forceRender = Knob("DEVILUTIONX_VR_FORCE_RENDER", 0) != 0;
@@ -639,6 +675,8 @@ void VrPresent(SDL_Surface *surface)
 			extra.size = { extraWidth, extraWidth * static_cast<float>(extraRect.h) / static_cast<float>(extraRect.w) };
 			layers[layerCount++] = reinterpret_cast<XrCompositionLayerBaseHeader *>(&extra);
 		}
+		if (PlaceItemCard(frameState.predictedDisplayTime, quad, card))
+			layers[layerCount++] = reinterpret_cast<XrCompositionLayerBaseHeader *>(&card);
 		if (quadVisible && held == Held::Parchment && MapArrowLayer(arrowQuad))
 			layers[layerCount++] = reinterpret_cast<XrCompositionLayerBaseHeader *>(&arrowQuad);
 		// The laser last, over the screen and every panel.

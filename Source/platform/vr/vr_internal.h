@@ -175,6 +175,12 @@ void SelfCheck();
 void SetKey(bool &isDown, bool down, SDL_Keycode key);
 void SyncFreePosition();
 void UpdateInput(XrTime time, float screenHeight);
+/** A buzz on one hand, scaled by the Haptics setting. */
+void Pulse(Hand hand, float amplitude, int milliseconds);
+
+// xr_haptics.cpp
+/** Buzzes for what the game did this frame: blows, potions, pickups, objects used, the interface. */
+void UpdateHaptics(Hand main, Hand off, bool onPanel, Hand pointingHand, bool mouseDown);
 
 // xr_laser.cpp
 /** The laser this frame, in tracking space: from the pointing hand to what it hits. */
