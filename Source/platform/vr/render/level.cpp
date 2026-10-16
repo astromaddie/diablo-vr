@@ -80,6 +80,12 @@ struct PieceInfo {
 	int16_t neLayer;
 	int16_t cardLayer;
 	float color[3];
+	/**
+	 * Hell's flesh blocks (HellBlock): the red sides and the bone ridge along the top, for faces
+	 * across x ([0]) and across y ([1]). -1 when the piece is no such block.
+	 */
+	int16_t blockSide[2];
+	int16_t blockRidge[2];
 };
 
 /** An image as palette index + alpha pairs. */
@@ -130,6 +136,8 @@ float layerBrightness[MaxLayers];
 uint16_t layerPiece[MaxLayers];
 bool layerNorthEast[MaxLayers];
 bool layerIsWall[MaxLayers];
+/** Wall art only ever found inside a block of wall, never towards open ground: the block's top seen from above. */
+bool layerIsTop[MaxLayers];
 /** 0 puts the art's thin arch and door-frame cut-outs back instead of built doorways. */
 const bool Doorways = Knob("DEVILUTIONX_VR_DOORWAYS", 1) != 0;
 /** Where a doorway's arch starts and how far it rises, in meters. */
@@ -550,6 +558,63 @@ int16_t ExtractPlainWallFace(const Image &image, bool northEast, int material, b
 	}, nullptr, material, decal);
 }
 
+/*
+ * Hell's flesh blocks. The art draws them as a box, its top and two front sides red flesh, with a
+ * horned ridge of bone along the top's back edges: from above, red ground walled in by bone. In a
+ * 64 x H column the top's left and right corners are at H - 86, its front corner at H - 70; the
+ * sides show 45 px below the top's front edges, the ridge rises up to 40 px over its back edges.
+ * Taking such a piece as a wall face stretches sides, top and ridge up one face. Instead the block
+ * is built with the sides as its faces, as high as the top stands (70 px), and the ridge as a
+ * cut-out on top of each.
+ */
+constexpr float HellBlockTop = 70;
+constexpr float HellBlockSide = 45;
+constexpr float HellBlockRidge = 40;
+
+bool IsFlesh(const Image &image, int x, int y)
+{
+	float texel[4];
+	Sample(image, static_cast<float>(x) + 0.5F, static_cast<float>(y) + 0.5F, texel);
+	return texel[3] > 128 && texel[0] > 2 * texel[1] + 20 * texel[3] / 255;
+}
+
+/** Whether a hell wall piece is a flesh block: red on both of its sides. */
+bool HellBlock(const Image &image)
+{
+	const int h = image.height;
+	return leveltype == DTYPE_HELL && image.width == TILE_WIDTH && h >= 120
+	    && IsFlesh(image, 16, h - 52) && IsFlesh(image, 48, h - 52) && IsFlesh(image, 8, h - 62) && IsFlesh(image, 56, h - 62);
+}
+
+/** A flesh block's side. `right`: the top's front-right edge (a face across x), else front-left (across y). */
+int16_t ExtractHellSide(const Image &image, bool right)
+{
+	const auto h = static_cast<float>(image.height);
+	return ExtractLayer(image, true, [&](float s, float t, float &px, float &py) {
+		px = (right ? 32 : 0) + 32 * s;
+		py = (right ? h - 70 - 16 * s : h - 86 + 16 * s) + t * HellBlockSide;
+	});
+}
+
+/** The ridge over a flesh block's top edge, a cut-out; -1 when there is hardly any. `right`: the back-right edge. */
+int16_t ExtractHellRidge(const Image &image, bool right)
+{
+	const int h = image.height;
+	int painted = 0;
+	for (int i = 0; i < TILE_WIDTH / 2; i++) {
+		const int edge = right ? h - 102 + i / 2 : h - 86 - i / 2;
+		for (int y = edge - static_cast<int>(HellBlockRidge); y < edge - 2; y++)
+			painted += Opaque(image, (right ? 32 : 0) + i, y) ? 1 : 0;
+	}
+	if (painted < TILE_WIDTH / 2 * 2)
+		return -1;
+	const auto fh = static_cast<float>(h);
+	return ExtractLayer(image, false, [&](float s, float t, float &px, float &py) {
+		px = (right ? 32 : 0) + 32 * s;
+		py = (right ? fh - 102 + 16 * s : fh - 86 - 16 * s) - 2 - (1 - t) * (HellBlockRidge - 2);
+	});
+}
+
 /** A layer as Vertex::layer has it: with its material, if it wears one. */
 float Worn(int16_t layer)
 {
@@ -565,7 +630,27 @@ const PieceInfo &Classify(uint16_t piece)
 		return info;
 	info.known = true;
 	info.floorLayer = info.nwLayer = info.neLayer = info.cardLayer = -1;
+	info.blockSide[0] = info.blockSide[1] = info.blockRidge[0] = info.blockRidge[1] = -1;
 	const Image image = RenderColumn(piece);
+	// Debug aid: with DEVILUTIONX_VR_DEBUG_WALLS=<folder>, every piece's art as col-<piece>.bmp.
+	if (const char *folder = SDL_getenv("DEVILUTIONX_VR_DEBUG_WALLS"); folder != nullptr && folder[0] == '/' && image.width > 0 && image.height > 0) {
+		std::vector<uint32_t> pixels(static_cast<size_t>(image.width) * image.height);
+		for (int y = 0; y < image.height; y++) {
+			for (int x = 0; x < image.width; x++) {
+				float texel[4];
+				uint8_t index;
+				Sample(image, static_cast<float>(x) + 0.5F, static_cast<float>(y) + 0.5F, texel, &index);
+				const auto byte = [](float v) { return static_cast<uint32_t>(std::clamp(v, 0.F, 255.F)); };
+				pixels[static_cast<size_t>(y) * image.width + x] = byte(texel[0]) | byte(texel[1]) << 8 | byte(texel[2]) << 16 | byte(texel[3]) << 24;
+			}
+		}
+		if (SDL_Surface *picture = SDL_CreateRGBSurfaceWithFormatFrom(pixels.data(), image.width, image.height, 32, image.width * 4, SDL_PIXELFORMAT_ABGR8888); picture != nullptr) {
+			char path[512];
+			SDL_snprintf(path, sizeof(path), "%s/col-%d.bmp", folder, piece);
+			SDL_SaveBMP(picture, path);
+			SDL_FreeSurface(picture);
+		}
+	}
 	const int h = image.height;
 
 	// Diablo draws walls as slabs standing on the tile's two far edges (north-west, north-east).
@@ -607,6 +692,13 @@ const PieceInfo &Classify(uint16_t piece)
 		info.faces |= FaceCard;
 	}
 
+	if (isWall && HellBlock(image) && Knob("DEVILUTIONX_VR_HELL_BLOCKS", 1) != 0) {
+		// Across x: the front-right side and the back-left ridge; across y the other two.
+		info.blockSide[0] = ExtractHellSide(image, true);
+		info.blockSide[1] = ExtractHellSide(image, false);
+		info.blockRidge[0] = ExtractHellRidge(image, false);
+		info.blockRidge[1] = ExtractHellRidge(image, true);
+	}
 	if (isWall) {
 		if ((info.faces & FaceNW) != 0)
 			info.nwLayer = ExtractWallFace(image, false, true, wallMaterial >= 0 ? wallMaterial : pieceMaterial[piece][1], WallDecals);
@@ -1342,6 +1434,12 @@ void AddTile(int x, int y)
 			return;
 		int16_t nw = info.nwLayer >= 0 ? info.nwLayer : (info.neLayer >= 0 ? info.neLayer : genericWallLayer);
 		int16_t ne = info.neLayer >= 0 ? info.neLayer : (info.nwLayer >= 0 ? info.nwLayer : genericWallLayer);
+		// A side shown with the art of a block's top (hell's red flesh, borrowed from the other side)
+		// wears the common wall face instead.
+		if (nw >= 0 && layerIsTop[nw])
+			nw = genericWallLayer;
+		if (ne >= 0 && layerIsTop[ne])
+			ne = genericWallLayer;
 		// Beside a built doorway the wall's picture has the other half of the arch painted on it,
 		// which the doorway now has for real: plain wall there instead.
 		bool alongX;
@@ -1352,6 +1450,26 @@ void AddTile(int x, int y)
 			ne = plain;
 		// Where a flight runs into the wall, it has no face towards the stairs.
 		const auto open = [&](int nx, int ny) { return InLevel(nx, ny) && !wall[nx][ny] && !(stairCut[x][y] && stairTile[nx][ny]); };
+		if (info.blockSide[0] >= 0 && info.blockSide[1] >= 0) {
+			// A flesh block: the sides as high as its top stands, the bone ridge standing on them.
+			const float metersPerPixel = ceilingHeight / wallPixels;
+			const float top = HellBlockTop * metersPerPixel;
+			const float ridge = HellBlockRidge * metersPerPixel;
+			const auto face = [&](float x0, float z0, float x1, float z1, int side) {
+				AddWallFace(x0, z0, x1, z1, info.blockSide[side], top);
+				if (info.blockRidge[side] >= 0)
+					AddQuad(At(x0, top, z0), At(x1, top, z1), At(x1, top + ridge, z1), At(x0, top + ridge, z0), info.blockRidge[side]);
+			};
+			if (open(x + 1, y))
+				face(fx + 1, fy + 1, fx + 1, fy, 0);
+			if (open(x - 1, y))
+				face(fx, fy + 1, fx, fy, 0);
+			if (open(x, y + 1))
+				face(fx, fy + 1, fx + 1, fy + 1, 1);
+			if (open(x, y - 1))
+				face(fx, fy, fx + 1, fy, 1);
+			return;
+		}
 		if (open(x + 1, y))
 			AddTallWallFace(fx + 1, fy + 1, fx + 1, fy, nw);
 		if (open(x - 1, y))
@@ -2327,6 +2445,7 @@ void Rebuild()
 	specialLayers.clear();
 	layerCount = 0;
 	std::memset(layerIsWall, 0, sizeof(layerIsWall));
+	std::memset(layerIsTop, 0, sizeof(layerIsTop));
 	genericWallLayer = -1;
 	plainWallLayer = -1;
 	plainFloorKnown = false;
@@ -2480,22 +2599,37 @@ bool Patch()
 	}
 	PlanStairwells();
 	if (genericWallLayer < 0 && leveltype != DTYPE_TOWN) {
-		// The most used wall face of the level dresses the faces that have no art of their own.
+		// The wall face most often seen dresses the faces that have no art of their own. Only faces
+		// towards open ground count: inside a block of wall the art is the block's top seen from
+		// above (hell's red flesh), never a side.
 		std::vector<int> uses(MaxLayers, 0);
+		std::vector<int> hidden(MaxLayers, 0);
 		int best = 0;
+		const auto open = [](int x, int y) { return InLevel(x, y) && !wall[x][y]; };
 		for (int y = 0; y < MAXDUNY; y++) {
 			for (int x = 0; x < MAXDUNX; x++) {
 				if (!wall[x][y])
 					continue;
 				const PieceInfo &info = Classify(dPiece[x][y]);
-				for (const int16_t layer : { info.nwLayer, info.neLayer }) {
-					if (layer >= 0 && ++uses[layer] > best) {
+				const bool seen[2] = { open(x - 1, y) || open(x + 1, y), open(x, y - 1) || open(x, y + 1) };
+				const int16_t faces[2] = { info.nwLayer, info.neLayer };
+				for (int side = 0; side < 2; side++) {
+					const int16_t layer = faces[side];
+					if (layer < 0)
+						continue;
+					if (!seen[side]) {
+						hidden[layer]++;
+						continue;
+					}
+					if (++uses[layer] > best) {
 						best = uses[layer];
 						genericWallLayer = layer;
 					}
 				}
 			}
 		}
+		for (int layer = 0; layer < MaxLayers; layer++)
+			layerIsTop[layer] = hidden[layer] > 0 && uses[layer] == 0;
 		// Of the faces used at least an eighth as often, and about as bright, the one with the least
 		// painted on it.
 		plainWallLayer = genericWallLayer;
@@ -2505,8 +2639,8 @@ bool Patch()
 				plainWallLayer = static_cast<int16_t>(layer);
 		}
 		for (int layer = 0; layer < MaxLayers && SDL_getenv("DEVILUTIONX_VR_DEBUG_WALLS") != nullptr; layer++) {
-			if (uses[layer] > 0)
-				LogInfo("VR: wall face {} used {} blotch {:.3f} brightness {:.0f}", layer, uses[layer], layerBlotch[layer], layerBrightness[layer]);
+			if (uses[layer] > 0 || hidden[layer] > 0)
+				LogInfo("VR: wall face {} seen {} hidden {} blotch {:.3f} brightness {:.0f} piece {} {}", layer, uses[layer], hidden[layer], layerBlotch[layer], layerBrightness[layer], layerPiece[layer], layerNorthEast[layer] ? "ne" : "nw");
 		}
 		// The cathedral has no plain face at all (ExtractPlainWallFace).
 		if (leveltype == DTYPE_CATHEDRAL && genericWallLayer >= 0 && layerIsWall[genericWallLayer]) {
