@@ -204,12 +204,13 @@ Checked:
 - The Steam launch: started from Steam, the game runs in Steam Linux Runtime 4 at the title's
   refresh rate and quits cleanly on SIGTERM.
 - The flat game: it boots to the main menu in the build image (`build.sh smoke`).
+- Playing it: after the performance work it was played in the headset and ran fine, including the
+  focus pause. What that play turned up (the laser over menus, the HUD, buttons in menus, walls)
+  is in the follow-up PRs.
 
 Not checked yet:
 
-- Playing it in the headset. It was played once, briefly, before the performance work, at 42 fps.
-  It hasn't been played since. So the controls, the focus pause, the even stepping and foveation
-  haven't been tried by anyone wearing it.
+- Foveation in the headset.
 - Fights. No frame rate has been measured in one.
 - The Windows build (see above).
 

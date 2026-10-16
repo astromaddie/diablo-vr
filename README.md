@@ -521,8 +521,8 @@ Delete the `build` folder and run `build-vr.bat` again. The first run needs inte
 This is a prototype. Honest list:
 
 - **Windows, plus the Steam Frame.** The Frame build is Linux ARM64 through dxvk-native. Other
-  Linux setups and a standalone Quest build aren't there. The Frame build hasn't been played since
-  its performance work, so its controls haven't been tried in the headset yet.
+  Linux setups and a standalone Quest build aren't there. The Frame build has been played in the
+  headset after its performance work and runs fine; the follow-up PRs fix what that play turned up.
 - **Tested on one setup** (Quest 2 through SteamVR). Other headsets should work through OpenXR but
   have not been tried. Only Touch-style and Steam Frame controller bindings exist; Index, Vive wand and WMR
   controllers depend on the runtime remapping them.
