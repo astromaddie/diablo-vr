@@ -1455,8 +1455,9 @@ void WallFaceLayers(int x, int y, int16_t &nw, int16_t &ne)
 /**
  * Many wall faces are one half of a pattern: half an arch in the cathedral, half a rib cage in
  * hell. Where the art pairs two pieces, neighbours along a wall make the whole; where one half
- * repeats, they do not. Walking each run of faces, a face is flipped left to right when that makes
- * its edge meet the one before it clearly better, so arches and ribs carry on across the seams.
+ * repeats, they do not. In the cathedral, walking each run of faces, a face is flipped left to
+ * right when that makes its edge meet the one before it clearly better, so arches carry on across
+ * the seams. Hell's rib cages simply alternate, every other face flipped, in mirrored pairs.
  */
 void FlipForSeams()
 {
@@ -1502,7 +1503,10 @@ void FlipForSeams()
 					continue;
 				}
 				bool flip = false;
-				if (before >= 0) {
+				if (leveltype == DTYPE_HELL) {
+					// Hell's rib cages go in mirrored pairs all along: every other face flipped.
+					flip = (along & 1) != 0;
+				} else if (before >= 0) {
 					// The previous face's edge towards this tile, and this face's edge towards it, either way round.
 					const int sharedBefore = side.acrossX ? 0 : 1;
 					const float *edge = layerEdge[before][beforeFlipped ? 1 - sharedBefore : sharedBefore];
