@@ -125,6 +125,12 @@ The bindings are only suggested when the runtime has `XR_VALVE_frame_controller_
   compositor puts over the eyes' picture, so it vanished over every menu. It now shows over the
   menus too, and over the world it ends at what the hand aims at, as before. The beam turns gold,
   with a tick in the hand, on anything the trigger picks up, opens or talks to.
+- Doors swing open again. The swing stepped by the time since the last update, read after that
+  time had been reset, so it never moved, and a door opened in front of you stayed shut.
+- The automap held in the left hand is placed so that where the player is on it sits just over
+  the hand, with a big gold arrow there (a quad layer over the map) pointing where the head
+  looks. Before, the map was half a metre wide above the hand with the game's small arrow in its
+  middle.
 - The left hand points as well, where the right hand isn't on a screen or panel, and its trigger
   clicks there. That's how the right wrist's buttons are pressed. On a panel in the world, the
   right grip is the right mouse button, as it already was on the 2D screen.
@@ -145,6 +151,9 @@ The bindings are only suggested when the runtime has `XR_VALVE_frame_controller_
   testing the pause. `DEVILUTIONX_VR_DEBUG_HANDS` holds stand-in hands out in front while the
   controllers aren't tracked, and logs the layers each frame submits as they change, so the laser
   and the wrists can be checked against the runtime with nobody there.
+  `DEVILUTIONX_VR_DEBUG_AUTOMAP=<n>` opens the automap n frames into a game. For the
+  headset-free renderer, `DEVILUTIONX_VR_DEBUG_OBJECT=chest`, `sarc` or `door` looks at the
+  level's first one and opens it 200 frames in.
 
 ## Patches to third-party code
 
@@ -235,6 +244,9 @@ Checked:
 - Playing it: after the performance work it was played in the headset and ran fine. That play
   turned up the laser missing over the menus, the HUD wanted on the hands, A and B meaning
   different things in different menus, and picking up and saving being hard to find out.
+- Doors, chests and sarcophagi opening, drawn on lavapipe with `DEBUG_OBJECT` on level 2: the
+  door swings open, the chest's lid comes up, and the sarcophagus runs through its frames to the
+  open one, though its lid only moves a little, as in the art.
 - The fixes for those, unattended: with stand-in hands the Frame's runtime takes the menu with the
   beam and the dot (3 layers) and the world with both wrists and the beam (4 layers), at 90 Hz.
 

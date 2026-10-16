@@ -280,6 +280,9 @@ On the Frame the HUD strip goes on your wrists (`DEVILUTIONX_VR_WRIST_HUD`): lif
 buttons and belt slots 1 to 4 on the left wrist, mana, belt slots 5 to 8 and the spell buttons
 on the right. Point at one wrist with the other hand and pull the trigger to press what's on it.
 
+The automap (left stick click) is held in the left hand, with where you are on it just over the
+hand and a big gold arrow there pointing where you look.
+
 ## Settings
 
 The VR mode is tuned with environment variables read at startup. Set them before launching, for

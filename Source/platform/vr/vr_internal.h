@@ -174,6 +174,14 @@ struct LaserPointer {
 	XrVector3f to;
 };
 extern LaserPointer laser;
+/** The player's arrow on the automap held in the left hand: drawn big over the game's own. */
+struct MapArrow {
+	bool visible;
+	XrPosef pose;
+};
+extern MapArrow mapArrow;
+/** Fills a quad layer for the map arrow, to go over the map. False when there is none. */
+bool MapArrowLayer(XrCompositionLayerQuad &layer);
 /** Fills up to two quad layers for the laser, to go over every other layer. Returns how many. */
 uint32_t LaserLayers(XrTime time, XrCompositionLayerQuad layers[2]);
 void ReleaseLaser();
