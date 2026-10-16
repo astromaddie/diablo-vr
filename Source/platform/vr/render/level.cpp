@@ -15,6 +15,7 @@
  * when its tiles change (doors), and so are the occupancy map and the lightmap.
  */
 #include "platform/vr/render/bridge.h"
+#include "platform/vr/input_rules.hpp"
 
 #include <array>
 #include <cstring>
@@ -1466,13 +1467,7 @@ void FlipForSeams()
 	if (!enabled || (leveltype != DTYPE_CATHEDRAL && leveltype != DTYPE_HELL))
 		return;
 	const auto open = [](int x, int y) { return InLevel(x, y) && !wall[x][y]; };
-	const auto difference = [](const float *a, const float *b) {
-		float sum = 0;
-		// Below the ledge, where the arches and ribs are.
-		for (int step = EdgeSteps / 4; step < EdgeSteps; step++)
-			sum += std::fabs(a[step] - b[step]);
-		return sum;
-	};
+	// Edges are compared below the ledge (from a quarter down), where the arches and ribs are.
 	// Faces across x run along y; across y along x. `bit` marks the face, `towards` is the open
 	// tile in front. The edge a face shares with the next tile along the run is s = 0 for faces
 	// across x (s runs from y + 1 to y) and s = 1 for faces across y.
@@ -1511,9 +1506,7 @@ void FlipForSeams()
 					const int sharedBefore = side.acrossX ? 0 : 1;
 					const float *edge = layerEdge[before][beforeFlipped ? 1 - sharedBefore : sharedBefore];
 					const int sharedHere = 1 - sharedBefore;
-					const float straight = difference(edge, layerEdge[layer][sharedHere]);
-					const float turned = difference(edge, layerEdge[layer][1 - sharedHere]);
-					flip = turned < straight * 0.8F;
+					flip = rules::FlipForSeam(edge, layerEdge[layer][sharedHere], layerEdge[layer][1 - sharedHere], EdgeSteps / 4, EdgeSteps);
 				}
 				if (flip)
 					faceFlipped[x][y] |= side.bit;
