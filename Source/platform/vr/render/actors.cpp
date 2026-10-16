@@ -747,7 +747,8 @@ void AddBelt(Scene &scene)
 	const Vec3 waist = scene.headPosition + Vec3 { 0, -0.68F, 0 };
 	for (int slot = 0; slot < MaxBeltItems; slot++) {
 		const Item &item = MyPlayer->SpdList[slot];
-		if (item.isEmpty())
+		// A potion taken in a hand is drawn there instead (AddBeltHold).
+		if (item.isEmpty() || slot == beltHold.slot)
 			continue;
 		// Left to right in the game's order, round the front of the body.
 		const float angle = (static_cast<float>(slot) - 3.5F) * 0.3F;
@@ -757,6 +758,20 @@ void AddBelt(Scene &scene)
 		const int icon = item._iCurs + CURSOR_FIRSTITEM - 1;
 		CarvedAddItem(scene, icon, Compose(at, AxisAngle({ 0, 1, 0 }, yaw)), IconMeters * 0.8F, 0.02F);
 	}
+}
+
+/** A belt potion held in a hand, upright in the fist. */
+void AddBeltHold(Scene &scene, const VrHandPose &hand)
+{
+	if (beltHold.slot < 0 || beltHold.slot >= MaxBeltItems || !hand.valid)
+		return;
+	const Item &item = MyPlayer->SpdList[beltHold.slot];
+	if (item.isEmpty())
+		return;
+	const Quat orientation { hand.orientation[0], hand.orientation[1], hand.orientation[2], hand.orientation[3] };
+	const Vec3 at = Vec3 { hand.position[0], hand.position[1], hand.position[2] } + Rotate(orientation, { 0, 0.02F, 0.03F });
+	const int icon = item._iCurs + CURSOR_FIRSTITEM - 1;
+	CarvedAddItem(scene, icon, Compose(at, orientation * AxisAngle({ 1, 0, 0 }, -1.5707963F)), IconMeters * 0.8F, 0.02F);
 }
 
 /** The game's large picture of a spell (with its type's colours), stored in the atlas once per atlas epoch. */
@@ -918,6 +933,7 @@ void AddLights(Scene &scene)
 
 VrSpellRing spellRing {};
 VrHeldPanel heldPanel {};
+VrBeltHold beltHold { -1, 0 };
 
 Vec3 TileToWorld(Point tile, float screenX, float screenY)
 {
@@ -998,6 +1014,7 @@ void ActorsAddToScene(Scene &scene, const VrHandPose &leftHand, const VrHandPose
 			AddVial(scene, rightHand, me._pMaxMana > 0 ? static_cast<float>(me._pMana) / static_cast<float>(me._pMaxMana) : 0, { 0.03F, 0.05F, 0.45F });
 		}
 		AddBelt(scene);
+		AddBeltHold(scene, beltHold.hand == 0 ? leftHand : rightHand);
 		AddSpellHand(scene, spellHand);
 		AddHeldPanel(scene);
 	}

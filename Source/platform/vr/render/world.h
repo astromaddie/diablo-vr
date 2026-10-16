@@ -58,6 +58,12 @@ struct VrSpellRing {
 	int types[32];
 };
 
+/** A belt potion taken in a hand (Belt Grab): which slot, and which hand, 0 left, 1 right. Slot -1: none. */
+struct VrBeltHold {
+	int slot;
+	int hand;
+};
+
 /** Distances of the clip planes, for whoever submits the depth image. */
 constexpr float VrNearPlane = 0.05F;
 constexpr float VrFarPlane = 400.0F;
@@ -138,6 +144,7 @@ void VrWorldSetVignette(float strength);
 
 /** The left hand's speedbook as the input layer has it this frame. */
 void VrWorldSetSpellRing(const VrSpellRing &ring);
+void VrWorldSetBeltHold(const VrBeltHold &hold);
 
 /**
  * Something the hand at `hand` (world space) can take hold of: an object (door, chest, lever,
