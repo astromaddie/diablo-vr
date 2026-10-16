@@ -138,6 +138,14 @@ bool layerNorthEast[MaxLayers];
 bool layerIsWall[MaxLayers];
 /** Wall art only ever found inside a block of wall, never towards open ground: the block's top seen from above. */
 bool layerIsTop[MaxLayers];
+/** A layer's left (s = 0) and right (s = 1) edge columns, brightness in 64 steps down: for matching seams. */
+constexpr int EdgeSteps = LayerHeight / 2;
+float layerEdge[MaxLayers][2][EdgeSteps];
+/**
+ * Wall faces drawn flipped left to right so their edges meet their neighbours' (FlipForSeams).
+ * Bits: 1 the face towards +x, 2 towards -x, 4 towards +y, 8 towards -y.
+ */
+uint8_t faceFlipped[MAXDUNX][MAXDUNY];
 /** 0 puts the art's thin arch and door-frame cut-outs back instead of built doorways. */
 const bool Doorways = Knob("DEVILUTIONX_VR_DOORWAYS", 1) != 0;
 /** Where a doorway's arch starts and how far it rises, in meters. */
@@ -493,6 +501,18 @@ int16_t ExtractLayer(const Image &image, bool opaque, Map map, float *averageCol
 		for (const float block : blocks)
 			spread += (block - mean) * (block - mean);
 		layerBlotch[layerCount] = mean > 0 ? std::sqrt(spread / static_cast<float>(std::size(blocks))) / mean : 1;
+		for (int side = 0; side < 2; side++) {
+			for (int step = 0; step < EdgeSteps; step++) {
+				float sum = 0;
+				for (int j = step * 2; j < step * 2 + 2; j++) {
+					for (int i = side == 0 ? 0 : LayerWidth - 2; i < (side == 0 ? 2 : LayerWidth); i++) {
+						const uint32_t c = albedo[j * LayerWidth + i];
+						sum += 0.3F * static_cast<float>(c & 0xFF) + 0.59F * static_cast<float>((c >> 8) & 0xFF) + 0.11F * static_cast<float>((c >> 16) & 0xFF);
+					}
+				}
+				layerEdge[layerCount][side][step] = sum / 4;
+			}
+		}
 		layerBrightness[layerCount] = mean / (BlockW * BlockH);
 	}
 	// Debug aid: DEVILUTIONX_VR_DEBUG_WALLS=<folder> saves every layer there as wall-<n>.bmp.
@@ -1406,6 +1426,100 @@ bool BuiltDoorway(int x, int y, bool &alongX)
 	return marked && (alongX || alongY);
 }
 
+/**
+ * The faces of a wall tile: across x (`nw`, the art's left face) and across y (`ne`). A side the
+ * art has no face for borrows the other; one with a block top's art, or beside a built doorway,
+ * gets a plain wall.
+ */
+void WallFaceLayers(int x, int y, int16_t &nw, int16_t &ne)
+{
+	const PieceInfo &info = Classify(dPiece[x][y]);
+	nw = info.nwLayer >= 0 ? info.nwLayer : (info.neLayer >= 0 ? info.neLayer : genericWallLayer);
+	ne = info.neLayer >= 0 ? info.neLayer : (info.nwLayer >= 0 ? info.nwLayer : genericWallLayer);
+	// A side shown with the art of a block's top (hell's red flesh, borrowed from the other side)
+	// wears the common wall face instead.
+	if (nw >= 0 && layerIsTop[nw])
+		nw = genericWallLayer;
+	if (ne >= 0 && layerIsTop[ne])
+		ne = genericWallLayer;
+	// Beside a built doorway the wall's picture has the other half of the arch painted on it,
+	// which the doorway now has for real: plain wall there instead.
+	bool alongX;
+	const int16_t plain = plainWallLayer >= 0 ? plainWallLayer : genericWallLayer;
+	if ((BuiltDoorway(x, y - 1, alongX) && alongX) || (BuiltDoorway(x, y + 1, alongX) && alongX))
+		nw = plain;
+	if ((BuiltDoorway(x - 1, y, alongX) && !alongX) || (BuiltDoorway(x + 1, y, alongX) && !alongX))
+		ne = plain;
+}
+
+/**
+ * Many wall faces are one half of a pattern: half an arch in the cathedral, half a rib cage in
+ * hell. Where the art pairs two pieces, neighbours along a wall make the whole; where one half
+ * repeats, they do not. Walking each run of faces, a face is flipped left to right when that makes
+ * its edge meet the one before it clearly better, so arches and ribs carry on across the seams.
+ */
+void FlipForSeams()
+{
+	std::memset(faceFlipped, 0, sizeof(faceFlipped));
+	static const bool enabled = Knob("DEVILUTIONX_VR_FLIP_SEAMS", 1) != 0;
+	if (!enabled || (leveltype != DTYPE_CATHEDRAL && leveltype != DTYPE_HELL))
+		return;
+	const auto open = [](int x, int y) { return InLevel(x, y) && !wall[x][y]; };
+	const auto difference = [](const float *a, const float *b) {
+		float sum = 0;
+		// Below the ledge, where the arches and ribs are.
+		for (int step = EdgeSteps / 4; step < EdgeSteps; step++)
+			sum += std::fabs(a[step] - b[step]);
+		return sum;
+	};
+	// Faces across x run along y; across y along x. `bit` marks the face, `towards` is the open
+	// tile in front. The edge a face shares with the next tile along the run is s = 0 for faces
+	// across x (s runs from y + 1 to y) and s = 1 for faces across y.
+	struct Side {
+		uint8_t bit;
+		int dx, dy;
+		bool acrossX;
+	};
+	const Side sides[4] = { { 1, 1, 0, true }, { 2, -1, 0, true }, { 4, 0, 1, false }, { 8, 0, -1, false } };
+	for (const Side &side : sides) {
+		for (int line = 0; line < (side.acrossX ? MAXDUNX : MAXDUNY); line++) {
+			int16_t before = -1;
+			bool beforeFlipped = false;
+			for (int along = 0; along < (side.acrossX ? MAXDUNY : MAXDUNX); along++) {
+				const int x = side.acrossX ? line : along;
+				const int y = side.acrossX ? along : line;
+				if (!InLevel(x, y) || !wall[x][y] || dPiece[x][y] >= MAXTILES || !open(x + side.dx, y + side.dy)
+				    || Classify(dPiece[x][y]).blockSide[0] >= 0) {
+					before = -1;
+					continue;
+				}
+				int16_t nw;
+				int16_t ne;
+				WallFaceLayers(x, y, nw, ne);
+				const int16_t layer = side.acrossX ? nw : ne;
+				if (layer < 0) {
+					before = -1;
+					continue;
+				}
+				bool flip = false;
+				if (before >= 0) {
+					// The previous face's edge towards this tile, and this face's edge towards it, either way round.
+					const int sharedBefore = side.acrossX ? 0 : 1;
+					const float *edge = layerEdge[before][beforeFlipped ? 1 - sharedBefore : sharedBefore];
+					const int sharedHere = 1 - sharedBefore;
+					const float straight = difference(edge, layerEdge[layer][sharedHere]);
+					const float turned = difference(edge, layerEdge[layer][1 - sharedHere]);
+					flip = turned < straight * 0.8F;
+				}
+				if (flip)
+					faceFlipped[x][y] |= side.bit;
+				before = layer;
+				beforeFlipped = flip;
+			}
+		}
+	}
+}
+
 void AddTile(int x, int y)
 {
 	if (!plainFloorKnown)
@@ -1433,22 +1547,9 @@ void AddTile(int x, int y)
 		// A stairwell's round pillar is built with the stairwell.
 		if (stairPillar[x][y])
 			return;
-		int16_t nw = info.nwLayer >= 0 ? info.nwLayer : (info.neLayer >= 0 ? info.neLayer : genericWallLayer);
-		int16_t ne = info.neLayer >= 0 ? info.neLayer : (info.nwLayer >= 0 ? info.nwLayer : genericWallLayer);
-		// A side shown with the art of a block's top (hell's red flesh, borrowed from the other side)
-		// wears the common wall face instead.
-		if (nw >= 0 && layerIsTop[nw])
-			nw = genericWallLayer;
-		if (ne >= 0 && layerIsTop[ne])
-			ne = genericWallLayer;
-		// Beside a built doorway the wall's picture has the other half of the arch painted on it,
-		// which the doorway now has for real: plain wall there instead.
-		bool alongX;
-		const int16_t plain = plainWallLayer >= 0 ? plainWallLayer : genericWallLayer;
-		if ((BuiltDoorway(x, y - 1, alongX) && alongX) || (BuiltDoorway(x, y + 1, alongX) && alongX))
-			nw = plain;
-		if ((BuiltDoorway(x - 1, y, alongX) && !alongX) || (BuiltDoorway(x + 1, y, alongX) && !alongX))
-			ne = plain;
+		int16_t nw;
+		int16_t ne;
+		WallFaceLayers(x, y, nw, ne);
 		// Where a flight runs into the wall, it has no face towards the stairs.
 		const auto open = [&](int nx, int ny) { return InLevel(nx, ny) && !wall[nx][ny] && !(stairCut[x][y] && stairTile[nx][ny]); };
 		if (info.blockSide[0] >= 0 && info.blockSide[1] >= 0) {
@@ -1471,20 +1572,16 @@ void AddTile(int x, int y)
 				face(fx, fy, fx + 1, fy, 1);
 			return;
 		}
-		// Hell's rib cages show one half of their pattern on every tile; every other tile flips
-		// it, so neighbours join into the whole, twice as wide.
-		static const bool mirrorHell = Knob("DEVILUTIONX_VR_HELL_MIRROR", 1) != 0;
-		const bool alternate = leveltype == DTYPE_HELL && mirrorHell;
-		const bool mirrorAlongY = alternate && (y & 1) != 0;
-		const bool mirrorAlongX = alternate && (x & 1) != 0;
+		// Faces flipped so their edges meet the neighbours' (FlipForSeams).
+		const uint8_t flipped = faceFlipped[x][y];
 		if (open(x + 1, y))
-			AddTallWallFace(fx + 1, fy + 1, fx + 1, fy, nw, mirrorAlongY);
+			AddTallWallFace(fx + 1, fy + 1, fx + 1, fy, nw, (flipped & 1) != 0);
 		if (open(x - 1, y))
-			AddTallWallFace(fx, fy + 1, fx, fy, nw, mirrorAlongY);
+			AddTallWallFace(fx, fy + 1, fx, fy, nw, (flipped & 2) != 0);
 		if (open(x, y + 1))
-			AddTallWallFace(fx, fy + 1, fx + 1, fy + 1, ne, mirrorAlongX);
+			AddTallWallFace(fx, fy + 1, fx + 1, fy + 1, ne, (flipped & 4) != 0);
 		if (open(x, y - 1))
-			AddTallWallFace(fx, fy, fx + 1, fy, ne, mirrorAlongX);
+			AddTallWallFace(fx, fy, fx + 1, fy, ne, (flipped & 8) != 0);
 		return;
 	}
 
@@ -2655,6 +2752,7 @@ bool Patch()
 			if (plain >= 0)
 				plainWallLayer = plain;
 		}
+		FlipForSeams();
 		if (plainWallLayer >= 0)
 			LogVerbose("VR: plain wall face {} ({:.3f}; the most used, {}, {:.3f})", plainWallLayer, layerBlotch[plainWallLayer], genericWallLayer, layerBlotch[genericWallLayer]);
 	}
