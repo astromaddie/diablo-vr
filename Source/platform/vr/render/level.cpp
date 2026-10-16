@@ -2682,6 +2682,19 @@ int LevelDoorwayAxis(Point tile)
 	return 0;
 }
 
+bool LevelBuiltDoorway(int index, Point &tile, bool &alongX)
+{
+	for (int y = 0; y < MAXDUNY; y++) {
+		for (int x = 0; x < MAXDUNX; x++) {
+			if (BuiltDoorway(x, y, alongX) && index-- == 0) {
+				tile = { x, y };
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 float LevelCeilingHeight()
 {
 	return ceilingHeight;
