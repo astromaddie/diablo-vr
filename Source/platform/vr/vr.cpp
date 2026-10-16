@@ -37,6 +37,7 @@
 #include "options.h"
 #include "panels/quest_log.hpp"
 #include "platform/vr/render/world.h"
+#include "pfile.h"
 #include "player.h"
 #include "qol/stash.h"
 #include "quests.h"
@@ -423,6 +424,12 @@ void VrPresent(SDL_Surface *surface)
 {
 	if (!VrEnabled || state == State::Failed)
 		return;
+	// The Autosave setting: a save to the autosave slot after every level change (pfile.cpp).
+	// Unattended test runs never autosave, so they leave no saves behind, unless
+	// DEVILUTIONX_VR_DEBUG_AUTOSAVE=1 asks for it (to time one).
+	static const bool unattendedRun = (SDL_getenv("DEVILUTIONX_VR_AUTOSTART") != nullptr || Knob("DEVILUTIONX_VR_FORCE_RENDER", 0) != 0 || VrBenchLevel >= 0)
+	    && Knob("DEVILUTIONX_VR_DEBUG_AUTOSAVE", 0) == 0;
+	AutosaveEnabled = *Settings().autosave && !unattendedRun;
 
 	// Debug aid: taps Return until a game is running, so the 3D view can be tested unattended.
 	static const bool autostart = SDL_getenv("DEVILUTIONX_VR_AUTOSTART") != nullptr || VrBenchLevel >= 0;
