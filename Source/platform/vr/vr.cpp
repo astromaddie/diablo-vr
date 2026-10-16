@@ -579,6 +579,15 @@ void VrPresent(SDL_Surface *surface)
 	uint32_t layerCount = 0;
 	// Debug aid: a headset nobody wears is told not to render. See RenderWorld.
 	static const bool forceRender = Knob("DEVILUTIONX_VR_FORCE_RENDER", 0) != 0;
+	// In a game the 2D renderer leaves the world black behind panels, dialogs and shops (and the
+	// see-through backing of dialogs comes out black too). Black is uploaded transparent there, so
+	// only the interface floats over the world, as the desktop mirror shows it.
+	static const bool seeThroughPanels = Knob("DEVILUTIONX_VR_SEE_THROUGH_PANELS", 1) != 0;
+	const bool seeThrough = seeThroughPanels && world3d && uiMode && held == Held::None && surface != nullptr;
+	if (seeThrough)
+		clearBlack = { 0, 0, surface->w, surface->h };
+	else if (held != Held::Parchment)
+		clearBlack = {};
 	if ((frameState.shouldRender || forceRender) && screenPlaced && surface != nullptr && UploadFrame(surface)) {
 		quad.space = localSpace;
 		quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
@@ -599,7 +608,7 @@ void VrPresent(SDL_Surface *surface)
 		quad.subImage.imageRect.extent = { quadRect.w, quadRect.h };
 		quad.pose = screenPose;
 		quad.size = { quadWidth, quadWidth * static_cast<float>(quadRect.h) / static_cast<float>(quadRect.w) };
-		if (held == Held::Parchment)
+		if (held == Held::Parchment || seeThrough)
 			quad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT | XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
 		// What holds the panel is drawn by the world, where the quad is.
 		VrHeldPanel holder {};

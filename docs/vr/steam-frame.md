@@ -150,6 +150,11 @@ The bindings are only suggested when the runtime has `XR_VALVE_frame_controller_
   previous face's edge clearly better (by brightness down the shared edge), so arches carry on
   across the seams. Hell's rib cages alternate, every other face flipped, in mirrored pairs
   (`DEVILUTIONX_VR_FLIP_SEAMS=0` turns both off).
+- In a game, the panel that comes up for dialogs, shops, the game menu and the character and
+  quest panels is see-through wherever it is pure black: the 2D renderer leaves the world black
+  behind them, and the dimmed backing of dialogs comes out black too. Only the interface floats
+  over the world, the way the desktop mirror has always shown it
+  (`DEVILUTIONX_VR_SEE_THROUGH_PANELS=0` goes back to the solid panel).
 - The automap held in the left hand is placed so that where the player is on it sits just over
   the hand, with a big gold arrow there (a quad layer over the map) pointing where the head
   looks. Before, the map was half a metre wide above the hand with the game's small arrow in its
