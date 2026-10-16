@@ -23,6 +23,7 @@
 
 #include "control/control.hpp"
 #include "controls/input.h"
+#include "diablo.h"
 #include "engine/clx_sprite.hpp"
 #include "engine/dx.h"
 #include "engine/events.hpp"
@@ -321,7 +322,7 @@ void DoLoad(interface_mode uMsg)
 	switch (uMsg) {
 	case WM_DIABLOADGAME:
 		IncProgress(2);
-		loadResult = LoadGame(true);
+		loadResult = gbLoadAutosave ? LoadAutosave(true) : LoadGame(true);
 		if (loadResult.has_value()) IncProgress(2);
 		break;
 	case WM_DIABNEWGAME:

@@ -381,8 +381,9 @@ void gamemenu_load_autosave(bool /*bActivate*/)
 
 bool gamemenu_can_load_autosave()
 {
+	// Offered even with AutosaveEnabled off: turning autosave off must not hide an autosave the hero has.
 	// Demos replay input recorded against the regular menu, so they never get the extra entry.
-	return AutosaveEnabled && !gbIsMultiplayer && !demo::IsRunning() && !demo::IsRecording() && HasAutosave();
+	return !gbIsMultiplayer && !demo::IsRunning() && !demo::IsRecording() && HasAutosave();
 }
 
 void gamemenu_save_game(bool /*bActivate*/)

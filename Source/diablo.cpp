@@ -143,6 +143,7 @@ bool ReturnToMainMenu;
 /** Enable updating of player character, set to false once Diablo dies */
 bool gbProcessPlayers;
 bool gbLoadGame;
+bool gbLoadAutosave;
 bool cineflag;
 int PauseMode;
 clicktype sgbMouseDown;
@@ -2706,6 +2707,7 @@ bool StartGame(bool bNewGame, bool bSinglePlayer)
 
 	do {
 		gbLoadGame = false;
+		gbLoadAutosave = false;
 
 		if (!NetInit(bSinglePlayer)) {
 			gbRunGameResult = true;
@@ -2727,7 +2729,7 @@ bool StartGame(bool bNewGame, bool bSinglePlayer)
 		}
 		giNumberOfLevels = gbIsHellfire ? 25 : 17;
 		interface_mode uMsg = WM_DIABNEWGAME;
-		if (gbValidSaveFile && gbLoadGame) {
+		if (gbLoadGame && (gbValidSaveFile || gbLoadAutosave)) {
 			uMsg = WM_DIABLOADGAME;
 		}
 		RunGameLoop(uMsg);

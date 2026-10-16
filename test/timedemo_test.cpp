@@ -51,6 +51,19 @@ std::vector<std::byte> ReadSaveEntry(const std::string &archivePath, const char 
 	return { data.get(), data.get() + size };
 }
 
+/** @brief What the hero selection lists for the demo's hero (save number 0) */
+_uiheroinfo GetHeroInfo()
+{
+	static _uiheroinfo heroInfo;
+	heroInfo = {};
+	pfile_ui_set_hero_infos([](_uiheroinfo *info) {
+		if (info->saveNumber == 0)
+			heroInfo = *info;
+		return true;
+	});
+	return heroInfo;
+}
+
 /** @brief Names of the level entries of a save archive with the given prefix ("perm" or "temp") */
 std::vector<std::string> LevelEntryNames(const char *prefix)
 {
@@ -113,6 +126,15 @@ void CheckAutosave(const std::string &savePath, const std::string &autosavePath,
 	EXPECT_EQ(ReadSaveEntry(savePath, "game"), game);
 	for (const std::string &name : tempNames)
 		EXPECT_TRUE(ReadSaveEntry(savePath, name.c_str()).empty()) << name;
+
+	// The hero selection offers the autosave, and continuing from it there starts the game from the autosave.
+	const _uiheroinfo heroInfo = GetHeroInfo();
+	EXPECT_TRUE(heroInfo.hassaved);
+	EXPECT_TRUE(heroInfo.hasautosave);
+	ASSERT_TRUE(LoadAutosave(/*firstflag=*/true).has_value());
+	EXPECT_EQ(currlevel, endLevel);
+	for (size_t i = 0; i < permNames.size(); i++)
+		EXPECT_EQ(ReadSaveEntry(savePath, tempNames[i].c_str()), autosaveLevels[i]) << tempNames[i];
 }
 
 void RunTimedemo(std::string timedemoFolderName, bool autosave = false)
@@ -185,10 +207,14 @@ void RunTimedemo(std::string timedemoFolderName, bool autosave = false)
 	const HeroCompareResult result = pfile_compare_hero_demo(demoNumber, true);
 	ASSERT_EQ(result.status, HeroCompareResult::Same) << result.message;
 	ASSERT_FALSE(gbRunGame);
-	if (autosave)
+	if (autosave) {
 		CheckAutosave(savePath, autosavePath, currlevel);
-	else
+	} else {
 		EXPECT_FALSE(FileExists(autosavePath));
+		const _uiheroinfo heroInfo = GetHeroInfo();
+		EXPECT_TRUE(heroInfo.hassaved);
+		EXPECT_FALSE(heroInfo.hasautosave);
+	}
 	AutosaveEnabled = false;
 	RemoveFile(autosavePath.c_str());
 	gbRunGame = false;
