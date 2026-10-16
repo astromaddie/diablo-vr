@@ -127,9 +127,12 @@ The bindings are only suggested when the runtime has `XR_VALVE_frame_controller_
   with a tick in the hand, on anything the trigger picks up, opens or talks to.
 - Doors swing open again. The swing stepped by the time since the last update, read after that
   time had been reset, so it never moved, and a door opened in front of you stayed shut.
-- The walls on either side of a built doorway wear the plain wall picture. Their own pictures
-  have the other halves of the painted arch on them, which showed as dark half-arches beside the
-  real one.
+- The walls on either side of a built doorway no longer wear their own pictures, which have the
+  other halves of the painted arch on them and showed as dark half-arches beside the real one.
+  They get the plainest of the level's common wall faces. The cathedral has none without an arch,
+  since its walls are painted as a blind arcade, so there that face is made from the most common
+  one: below its ledge every row repeats the two brick courses under it.
+  `DEVILUTIONX_VR_DEBUG_WALLS=<folder>` saves every wall and floor texture of a level there.
 - The automap held in the left hand is placed so that where the player is on it sits just over
   the hand, with a big gold arrow there (a quad layer over the map) pointing where the head
   looks. Before, the map was half a metre wide above the hand with the game's small arrow in its
