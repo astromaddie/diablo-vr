@@ -118,6 +118,18 @@ float materialColor[MaxMaterials][3];
 /** Which material a piece's floor, north-west face and north-east face wear; -1 for none. */
 int8_t pieceMaterial[MAXTILES][3];
 int8_t layerMaterial[MaxLayers];
+/**
+ * How much light and dark a layer has at large scale (the spread of its 8 x 16 texel block
+ * brightnesses, against their mean): high for a face with an arch or an alcove painted on it,
+ * low for plain masonry.
+ */
+float layerBlotch[MaxLayers];
+/** A layer's mean brightness, 0..255. */
+float layerBrightness[MaxLayers];
+/** The wall piece and face a wall layer was taken from. */
+uint16_t layerPiece[MaxLayers];
+bool layerNorthEast[MaxLayers];
+bool layerIsWall[MaxLayers];
 /** 0 puts the art's thin arch and door-frame cut-outs back instead of built doorways. */
 const bool Doorways = Knob("DEVILUTIONX_VR_DOORWAYS", 1) != 0;
 /** Where a doorway's arch starts and how far it rises, in meters. */
@@ -132,6 +144,8 @@ bool layersDirty;
 PieceInfo pieces[MAXTILES];
 std::vector<std::array<int16_t, 2>> specialLayers;
 int16_t genericWallLayer;
+/** A common wall face with the least painted on it (layerBlotch): beside built doorways. */
+int16_t plainWallLayer = -1;
 
 Mesh chunks[ChunksPerSide][ChunksPerSide];
 uint32_t chunkHash[ChunksPerSide][ChunksPerSide];
@@ -453,6 +467,35 @@ int16_t ExtractLayer(const Image &image, bool opaque, Map map, float *averageCol
 			normals[at] = pack(dx) | pack(dy) << 8 | static_cast<uint32_t>(painted[at] ? cycling[at] : 0) << 16 | 0xFF000000;
 		}
 	}
+	{
+		constexpr int BlockW = 8;
+		constexpr int BlockH = 16;
+		float blocks[(LayerWidth / BlockW) * (LayerHeight / BlockH)] = {};
+		for (int j = 0; j < LayerHeight; j++) {
+			for (int i = 0; i < LayerWidth; i++) {
+				const uint32_t c = albedo[j * LayerWidth + i];
+				blocks[(j / BlockH) * (LayerWidth / BlockW) + i / BlockW] += 0.3F * static_cast<float>(c & 0xFF) + 0.59F * static_cast<float>((c >> 8) & 0xFF) + 0.11F * static_cast<float>((c >> 16) & 0xFF);
+			}
+		}
+		float mean = 0;
+		for (const float block : blocks)
+			mean += block;
+		mean /= static_cast<float>(std::size(blocks));
+		float spread = 0;
+		for (const float block : blocks)
+			spread += (block - mean) * (block - mean);
+		layerBlotch[layerCount] = mean > 0 ? std::sqrt(spread / static_cast<float>(std::size(blocks))) / mean : 1;
+		layerBrightness[layerCount] = mean / (BlockW * BlockH);
+	}
+	// Debug aid: DEVILUTIONX_VR_DEBUG_WALLS=<folder> saves every layer there as wall-<n>.bmp.
+	if (const char *folder = SDL_getenv("DEVILUTIONX_VR_DEBUG_WALLS"); folder != nullptr && folder[0] == '/') {
+		if (SDL_Surface *picture = SDL_CreateRGBSurfaceWithFormatFrom(albedo, LayerWidth, LayerHeight, 32, LayerWidth * 4, SDL_PIXELFORMAT_ABGR8888); picture != nullptr) {
+			char path[512];
+			SDL_snprintf(path, sizeof(path), "%s/wall-%d.bmp", folder, layerCount);
+			SDL_SaveBMP(picture, path);
+			SDL_FreeSurface(picture);
+		}
+	}
 	UploadTexture(surfaces, layerCount, 0, 0, LayerWidth, LayerHeight, albedo, 4);
 	UploadTexture(surfaceNormals, layerCount, 0, 0, LayerWidth, LayerHeight, normals, 4);
 	layerMaterial[layerCount] = static_cast<int8_t>(opaque ? material : -1);
@@ -477,6 +520,31 @@ int16_t ExtractWallFace(const Image &image, bool northEast, bool opaque, int mat
 	const auto h = static_cast<float>(image.height);
 	return ExtractLayer(image, opaque, [&](float s, float t, float &px, float &py) {
 		// The face's bottom edge runs along the diamond's far side; up the wall is up the image.
+		px = (northEast ? 32 : 0) + 32 * s;
+		py = (northEast ? h - 32 + 16 * s : h - 16 - 16 * s) - (1 - t) * wallPixels;
+	}, nullptr, material, decal);
+}
+
+/**
+ * A cathedral wall face with no arch on it. The cathedral's walls are painted as a blind arcade,
+ * so every face carries half an arch; beside a doorway built in 3D that half has nothing to meet.
+ * This takes the face as ExtractWallFace does, but below the ledge every row repeats the two brick
+ * courses under it (layer rows 41 to 52), and on the right, where the arch starts in those rows,
+ * from 32 texels to the left.
+ */
+int16_t ExtractPlainWallFace(const Image &image, bool northEast, int material, bool decal)
+{
+	const auto h = static_cast<float>(image.height);
+	return ExtractLayer(image, true, [&](float s, float t, float &px, float &py) {
+		auto i = static_cast<int>(s * LayerWidth);
+		auto j = static_cast<int>(t * LayerHeight);
+		if (j >= 47) {
+			j = 41 + (j - 47) % 12;
+			if (i >= 44)
+				i -= 32;
+		}
+		s = (static_cast<float>(i) + 0.5F) / LayerWidth;
+		t = (static_cast<float>(j) + 0.5F) / LayerHeight;
 		px = (northEast ? 32 : 0) + 32 * s;
 		py = (northEast ? h - 32 + 16 * s : h - 16 - 16 * s) - (1 - t) * wallPixels;
 	}, nullptr, material, decal);
@@ -544,6 +612,13 @@ const PieceInfo &Classify(uint16_t piece)
 			info.nwLayer = ExtractWallFace(image, false, true, wallMaterial >= 0 ? wallMaterial : pieceMaterial[piece][1], WallDecals);
 		if ((info.faces & FaceNE) != 0)
 			info.neLayer = ExtractWallFace(image, true, true, wallMaterial >= 0 ? wallMaterial : pieceMaterial[piece][2], WallDecals);
+		for (const int16_t layer : { info.nwLayer, info.neLayer }) {
+			if (layer >= 0) {
+				layerPiece[layer] = piece;
+				layerNorthEast[layer] = layer == info.neLayer;
+				layerIsWall[layer] = true;
+			}
+		}
 		return info;
 	}
 	if ((info.faces & FaceFloor) != 0) {
@@ -1270,10 +1345,11 @@ void AddTile(int x, int y)
 		// Beside a built doorway the wall's picture has the other half of the arch painted on it,
 		// which the doorway now has for real: plain wall there instead.
 		bool alongX;
+		const int16_t plain = plainWallLayer >= 0 ? plainWallLayer : genericWallLayer;
 		if ((BuiltDoorway(x, y - 1, alongX) && alongX) || (BuiltDoorway(x, y + 1, alongX) && alongX))
-			nw = genericWallLayer;
+			nw = plain;
 		if ((BuiltDoorway(x - 1, y, alongX) && !alongX) || (BuiltDoorway(x + 1, y, alongX) && !alongX))
-			ne = genericWallLayer;
+			ne = plain;
 		// Where a flight runs into the wall, it has no face towards the stairs.
 		const auto open = [&](int nx, int ny) { return InLevel(nx, ny) && !wall[nx][ny] && !(stairCut[x][y] && stairTile[nx][ny]); };
 		if (open(x + 1, y))
@@ -2250,7 +2326,9 @@ void Rebuild()
 	std::memset(pieces, 0, sizeof(pieces));
 	specialLayers.clear();
 	layerCount = 0;
+	std::memset(layerIsWall, 0, sizeof(layerIsWall));
 	genericWallLayer = -1;
+	plainWallLayer = -1;
 	plainFloorKnown = false;
 	std::memset(layerMaterial, -1, sizeof(layerMaterial));
 	LoadMaterials();
@@ -2418,6 +2496,26 @@ bool Patch()
 				}
 			}
 		}
+		// Of the faces used at least an eighth as often, and about as bright, the one with the least
+		// painted on it.
+		plainWallLayer = genericWallLayer;
+		for (int layer = 0; layer < MaxLayers && genericWallLayer >= 0; layer++) {
+			if (uses[layer] >= std::max(4, best / 8) && layerBrightness[layer] >= 0.75F * layerBrightness[genericWallLayer]
+			    && layerBlotch[layer] < layerBlotch[plainWallLayer])
+				plainWallLayer = static_cast<int16_t>(layer);
+		}
+		for (int layer = 0; layer < MaxLayers && SDL_getenv("DEVILUTIONX_VR_DEBUG_WALLS") != nullptr; layer++) {
+			if (uses[layer] > 0)
+				LogInfo("VR: wall face {} used {} blotch {:.3f} brightness {:.0f}", layer, uses[layer], layerBlotch[layer], layerBrightness[layer]);
+		}
+		// The cathedral has no plain face at all (ExtractPlainWallFace).
+		if (leveltype == DTYPE_CATHEDRAL && genericWallLayer >= 0 && layerIsWall[genericWallLayer]) {
+			const int16_t plain = ExtractPlainWallFace(RenderColumn(layerPiece[genericWallLayer]), layerNorthEast[genericWallLayer], layerMaterial[genericWallLayer], WallDecals);
+			if (plain >= 0)
+				plainWallLayer = plain;
+		}
+		if (plainWallLayer >= 0)
+			LogVerbose("VR: plain wall face {} ({:.3f}; the most used, {}, {:.3f})", plainWallLayer, layerBlotch[plainWallLayer], genericWallLayer, layerBlotch[genericWallLayer]);
 	}
 	if (leveltype == DTYPE_TOWN && !townBuilt)
 		BuildTown();
