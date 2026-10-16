@@ -520,7 +520,9 @@ void PressKey(SDL_Keycode vkey, uint16_t modState)
 	if (MyPlayerIsDead) {
 		if (vkey == SDLK_ESCAPE) {
 			if (!gbIsMultiplayer) {
-				if (gbValidSaveFile)
+				if (gamemenu_can_load_autosave())
+					gamemenu_on(); // To choose between Load Game and Load Autosave
+				else if (gbValidSaveFile)
 					gamemenu_load_game(false);
 				else
 					gamemenu_exit_game(false);
@@ -1577,6 +1579,7 @@ void GameLogic()
 	CheckQuests();
 	RedrawViewport();
 	pfile_update(false);
+	UpdateAutosave();
 
 	plrctrls_after_game_logic();
 }
