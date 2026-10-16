@@ -113,6 +113,33 @@ The bindings are only suggested when the runtime has `XR_VALVE_frame_controller_
 - Walking, turning and the scene's clock (particles, monsters gliding between
   tiles) now step by the OpenXR display time. They used `SDL_GetTicks`, whose whole milliseconds
   make every step at 72 Hz either 13 or 14 ms long.
+- Doors swing open again. The swing stepped by the time since the last update, read after that
+  time had been reset, so it never moved, and a door opened in front of you stayed shut.
+  `DEVILUTIONX_VR_DEBUG_OBJECT=chest`, `sarc` or `door` has the headset-free renderer look at a
+  level's first one and open it 200 frames in.
+- The walls on either side of a built doorway no longer wear their own pictures, which have the
+  other halves of the painted arch on them and showed as dark half-arches beside the real one.
+  They get the plainest of the level's common wall faces. The cathedral has none without an arch,
+  since its walls are painted as a blind arcade, so there that face is made from the most common
+  one: below its ledge every row repeats the two brick courses under it.
+  `DEVILUTIONX_VR_DEBUG_WALLS=<folder>` saves every wall and floor texture of a level there, and
+  `DEVILUTIONX_VR_DEBUG_OBJECT=doorway` with `DEVILUTIONX_VR_DEBUG_DOORWAY=<n>` has the
+  headset-free renderer look straight at a level's n-th built doorway. Checked that way: the
+  cathedral (level 2), the catacombs (6) and the caves (10). Hell (14) has no built doorways.
+- Hell's walls. The art has two kinds: rib cages of bone, which are walls, and blocks of red flesh
+  drawn as a box (its top and two front sides) with a horned bone ridge along the top's back edges.
+  The blocks were taken as walls too, stretching sides, top and ridge up one 2.9 m face, and since
+  the most common wall face is the red top of a block (inside a mass of wall, where no side shows),
+  faces with no art of their own were red as well. Now the blocks are built from their sides,
+  as high as the top stands in the art, with the ridge as a cut-out on top
+  (`DEVILUTIONX_VR_HELL_BLOCKS=0` goes back), and only faces towards open ground count when the
+  common face is chosen. Art found only inside masses of wall is never put on a side. 
+- Many wall faces in the cathedral and hell are half a pattern: half an arch, half a rib cage.
+  Where the art pairs two pieces, neighbours make the whole; where one half repeats, they didn't.
+  Along each run of faces, a face is now flipped left to right when that makes its edge meet the
+  previous face's edge clearly better (by brightness down the shared edge), so arches carry on
+  across the seams. Hell's rib cages alternate, every other face flipped, in mirrored pairs
+  (`DEVILUTIONX_VR_FLIP_SEAMS=0` turns both off).
 - For testing without anyone in the headset, `DEVILUTIONX_VR_FORCE_RENDER=1` draws
   the world from a made-up head (`DEVILUTIONX_VR_DIAG_YAW` turns it). `DEVILUTIONX_VR_AUTOSTART`
   also types a hero name, so it gets into a game from a fresh install, and
@@ -208,6 +235,10 @@ Checked:
   focus pause. What that play turned up (the laser over menus, the HUD, buttons in menus, walls)
   is in the follow-up PRs.
 
+- Doors, chests and sarcophagi opening, drawn on lavapipe with `DEBUG_OBJECT` on level 2: the
+  door swings open, the chest's lid comes up, and the sarcophagus runs through its frames to the
+  open one, though its lid only moves a little, as in the art.
+- Hell's walls on level 14, before and after, drawn on lavapipe.
 Not checked yet:
 
 - Foveation in the headset.
