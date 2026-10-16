@@ -219,7 +219,7 @@ void CopySaveFile(uint32_t saveNum, std::string targetPath)
 #endif
 }
 
-void Game2UiPlayer(const Player &player, _uiheroinfo *heroinfo, bool bHasSaveFile)
+void Game2UiPlayer(const Player &player, _uiheroinfo *heroinfo, bool bHasSaveFile, bool bHasAutosave = false)
 {
 	CopyUtf8(heroinfo->name, player._pName, sizeof(heroinfo->name));
 	heroinfo->level = player.getCharacterLevel();
@@ -229,6 +229,7 @@ void Game2UiPlayer(const Player &player, _uiheroinfo *heroinfo, bool bHasSaveFil
 	heroinfo->dexterity = player._pDexterity;
 	heroinfo->vitality = player._pVitality;
 	heroinfo->hassaved = bHasSaveFile;
+	heroinfo->hasautosave = bHasAutosave;
 	heroinfo->herorank = player.pDiabloKillLevel;
 	heroinfo->spawned = gbIsSpawn;
 }
@@ -719,7 +720,7 @@ bool HasAutosave()
 	return !gbIsMultiplayer && FileExists(GetSavePath(gSaveNumber, {}, /*autosave=*/true));
 }
 
-std::expected<void, std::string> LoadAutosave()
+std::expected<void, std::string> LoadAutosave(bool firstflag)
 {
 	AutosavePending = false;
 
@@ -727,7 +728,7 @@ std::expected<void, std::string> LoadAutosave()
 	// the game, which must not mark the regular save as holding a game.
 	const bool validSaveFile = gbValidSaveFile;
 	RedirectToAutosave = true;
-	std::expected<void, std::string> result = LoadGame(false);
+	std::expected<void, std::string> result = LoadGame(firstflag);
 	RedirectToAutosave = false;
 	gbValidSaveFile = validSaveFile;
 	if (!result.has_value())
@@ -834,7 +835,8 @@ bool pfile_ui_set_hero_infos(bool (*uiAddHeroInfo)(_uiheroinfo *))
 				RemoveAllInvalidItems(player);
 				CalcPlrInv(player, false);
 
-				Game2UiPlayer(player, &uihero, hasSaveGame);
+				const bool hasAutosave = !gbIsMultiplayer && FileExists(GetSavePath(i, {}, /*autosave=*/true));
+				Game2UiPlayer(player, &uihero, hasSaveGame, hasAutosave);
 				uiAddHeroInfo(&uihero);
 			}
 		}

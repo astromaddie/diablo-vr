@@ -17,7 +17,7 @@ void gamemenu_quit_game(bool bActivate);
 void gamemenu_load_game(bool bActivate);
 void gamemenu_load_autosave(bool bActivate);
 void gamemenu_save_game(bool bActivate);
-/** @brief Whether the menu offers Load Autosave: autosave is on and the hero has one */
+/** @brief Whether the menu offers Load Autosave: the single player hero has an autosave (not in demos) */
 bool gamemenu_can_load_autosave();
 
 extern DVL_API_FOR_TEST bool isGameMenuOpen;

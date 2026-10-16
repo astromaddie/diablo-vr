@@ -116,8 +116,9 @@ bool HasAutosave();
  * @brief Load the hero's autosave, like LoadGame does the regular save
  *
  * The autosave's levels become the in-play levels of the regular save, which stays otherwise untouched.
+ * @param firstflag As for LoadGame: true when starting the game from the hero selection
  */
-std::expected<void, std::string> LoadAutosave();
+std::expected<void, std::string> LoadAutosave(bool firstflag = false);
 /** @brief Request an autosave for when the level change in progress has finished (if AutosaveEnabled) */
 void QueueAutosave();
 void CancelQueuedAutosave();
