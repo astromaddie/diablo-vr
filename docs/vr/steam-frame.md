@@ -53,7 +53,13 @@ with room to spare (see below).
 
 ## Settings
 
-The VR mode's settings are still environment variables. On the Frame the launcher reads them from
+The everyday settings are now in the game, under Menu, Options, VR Settings (and VR on the title
+screen's Settings): a `VR` category in DevilutionX's options, saved in `diablo.ini`, read live by
+the VR code. The pages are Comfort (turning, snap angle, turn speed, vignette, seated), Interface
+(dominant hand, haptics, HUD, see-through panels, autosave) and Hands (item cards, belt grab, spell
+gestures). Their environment variables only seed the first values.
+
+The rest are still environment variables. On the Frame the launcher reads them from
 `vr-settings.env` in the data folder, one `NAME=value` a line. `deploy.sh` installs
 `tools/steam_frame/vr-settings.env` there once and leaves it alone after that. `launch-once.env`
 and `launch-once.args` in the same folder apply to one launch and are deleted before the game
@@ -199,15 +205,23 @@ Both live in `tools/steam_frame`. Neither changes anything for other users of th
 
 | File | Change |
 | --- | --- |
-| `CMakeLists.txt` | `DEVILUTIONX_VR` can be turned on on Linux too |
+| `CMakeLists.txt` | `DEVILUTIONX_VR` can be turned on on Linux too, and is defined for every target, since `options.h` now has VR members |
+| `Source/options.h`, `Source/options.cpp` | The `VR` options category |
+| `Source/gamemenu.cpp`, `Source/gamemenu.h` | VR Settings under Options; Load Autosave |
+| `Source/pfile.cpp`, `Source/pfile.h`, `Source/interfac.cpp`, `Source/diablo.cpp`, `Source/diablo.h`, `Source/menu.cpp`, `Source/control/control_panel.cpp`, `Source/DiabloUI/diabloui.h`, `Source/DiabloUI/hero/selhero.cpp` | The autosave slot |
+| `CMake/Tests.cmake`, `test/vr_input_rules_test.cpp`, `test/timedemo_test.cpp` | Tests for the VR input rules and the autosave |
 | `Source/CMakeLists.txt` | The VR sources and libraries per platform: d3d11/dxgi/d3dcompiler on Windows, dxvk-native and vkd3d on Linux, plus the binding file for each |
 | `Source/init.cpp` | Window focus events don't pause the game while a headset session runs |
 | `Source/engine/dx.cpp` | The desktop window can skip frames during a headset session |
 | `Source/help.cpp` | During a headset session the help screen starts with the VR controls |
 
-All of it is inside `DEVILUTIONX_VR`.
+The VR parts are inside `DEVILUTIONX_VR`. The autosave is not: it's game code behind a flag,
+`AutosaveEnabled`, which only the VR mode sets. With it off, nothing is queued and the menus are as
+before, except that an autosave file is offered if one exists, and deleted along with its hero or
+on New Game. Its test replays the recorded demo with autosaves on and checks that the manual save
+still comes out byte for byte the same.
 
-The game without VR is unchanged. I built the flat game (`DEVILUTIONX_VR=OFF`, Linux ARM64)
+Before the settings and the autosave, the game without VR was unchanged. I built the flat game (`DEVILUTIONX_VR=OFF`, Linux ARM64)
 from upstream `main` and from this branch in the same folder with the same version string. Only
 `init.cpp` and `dx.cpp` recompiled. With VR off, `init.cpp` preprocesses to exactly upstream's.
 `dx.cpp` differs only in the line numbers that `ErrSdl()` writes into its error messages, because
@@ -277,10 +291,14 @@ Checked:
   open one, though its lid only moves a little, as in the art.
 - The fixes for those, unattended: with stand-in hands the Frame's runtime takes the menu with the
   beam and the dot (3 layers) and the world with both wrists and the beam (4 layers), at 90 Hz.
+- The settings build on the Frame: it starts, runs at 90 Hz and writes its `VR` section to
+  `diablo.ini`. An autosave there takes about 10 ms, once, right after arriving on a level.
+- `vr_input_rules_test` (8 tests) and the autosave replay test pass.
 
 Not checked yet:
 
-- The laser, the wrists, the menu buttons and the help screen in the headset.
+- In the headset: VR Settings, the haptics, the belt grab, the item cards, spell gestures, the
+  left-handed setting and loading an autosave.
 - Foveation in the headset.
 - Fights. No frame rate has been measured in one.
 - The Windows build (see above).
