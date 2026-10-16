@@ -768,24 +768,25 @@ Vec3 At(float x, float y, float z)
 	return { x * TileSize, y, z * TileSize };
 }
 
-void AddQuad(Vec3 a, Vec3 b, Vec3 c, Vec3 d, float layer, uint32_t color = 0x00FFFFFF)
+void AddQuad(Vec3 a, Vec3 b, Vec3 c, Vec3 d, float layer, uint32_t color = 0x00FFFFFF, bool mirrored = false)
 {
 	const Vec3 corners[4] = { a, b, c, d };
 	// Bottom-left, bottom-right, top-right, top-left of an upright face; or N, E, S, W of a floor.
 	static const float wallUv[4][2] = { { 0, 1 }, { 1, 1 }, { 1, 0 }, { 0, 0 } };
+	static const float mirroredWallUv[4][2] = { { 1, 1 }, { 0, 1 }, { 0, 0 }, { 1, 0 } };
 	static const float floorUv[4][2] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
 	const bool flat = a.y == c.y;
-	builder.Quad(corners, flat ? floorUv : wallUv, Worn(static_cast<int16_t>(layer)), color);
+	builder.Quad(corners, flat ? floorUv : (mirrored ? mirroredWallUv : wallUv), Worn(static_cast<int16_t>(layer)), color);
 }
 
-/** An upright face from (x0, z0) to (x1, z1), floor to ceiling. */
-void AddWallFace(float x0, float z0, float x1, float z1, int16_t layer, float height = 0)
+/** An upright face from (x0, z0) to (x1, z1), floor to ceiling; `mirrored` flips the picture left to right. */
+void AddWallFace(float x0, float z0, float x1, float z1, int16_t layer, float height = 0, bool mirrored = false)
 {
 	if (height == 0)
 		height = ceilingHeight;
 	// A face without art of its own wears the level's most ordinary wall.
 	const uint32_t color = layer >= 0 ? 0x00FFFFFF : PackColor(0.35F, 0.35F, 0.35F);
-	AddQuad(At(x0, 0, z0), At(x1, 0, z1), At(x1, height, z1), At(x0, height, z0), layer, color);
+	AddQuad(At(x0, 0, z0), At(x1, 0, z1), At(x1, height, z1), At(x0, height, z0), layer, color, mirrored);
 }
 
 /**
@@ -918,13 +919,13 @@ void AddCaveWallFace(float x0, float z0, float x1, float z1, int16_t layer)
 }
 
 /** A wall tile's face: the painting, and the wall going on above it. */
-void AddTallWallFace(float x0, float z0, float x1, float z1, int16_t layer)
+void AddTallWallFace(float x0, float z0, float x1, float z1, int16_t layer, bool mirrored = false)
 {
 	if (leveltype == DTYPE_CAVES) {
 		AddCaveWallFace(x0, z0, x1, z1, layer);
 		return;
 	}
-	AddWallFace(x0, z0, x1, z1, layer);
+	AddWallFace(x0, z0, x1, z1, layer, 0, mirrored);
 	AddWallAbove(x0, z0, x1, z1, layer);
 }
 
@@ -1470,14 +1471,20 @@ void AddTile(int x, int y)
 				face(fx, fy, fx + 1, fy, 1);
 			return;
 		}
+		// Hell's rib cages show one half of their pattern on every tile; every other tile flips
+		// it, so neighbours join into the whole, twice as wide.
+		static const bool mirrorHell = Knob("DEVILUTIONX_VR_HELL_MIRROR", 1) != 0;
+		const bool alternate = leveltype == DTYPE_HELL && mirrorHell;
+		const bool mirrorAlongY = alternate && (y & 1) != 0;
+		const bool mirrorAlongX = alternate && (x & 1) != 0;
 		if (open(x + 1, y))
-			AddTallWallFace(fx + 1, fy + 1, fx + 1, fy, nw);
+			AddTallWallFace(fx + 1, fy + 1, fx + 1, fy, nw, mirrorAlongY);
 		if (open(x - 1, y))
-			AddTallWallFace(fx, fy + 1, fx, fy, nw);
+			AddTallWallFace(fx, fy + 1, fx, fy, nw, mirrorAlongY);
 		if (open(x, y + 1))
-			AddTallWallFace(fx, fy + 1, fx + 1, fy + 1, ne);
+			AddTallWallFace(fx, fy + 1, fx + 1, fy + 1, ne, mirrorAlongX);
 		if (open(x, y - 1))
-			AddTallWallFace(fx, fy, fx + 1, fy, ne);
+			AddTallWallFace(fx, fy, fx + 1, fy, ne, mirrorAlongX);
 		return;
 	}
 

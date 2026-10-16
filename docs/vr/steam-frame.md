@@ -143,7 +143,9 @@ The bindings are only suggested when the runtime has `XR_VALVE_frame_controller_
   faces with no art of their own were red as well. Now the blocks are built from their sides,
   as high as the top stands in the art, with the ridge as a cut-out on top
   (`DEVILUTIONX_VR_HELL_BLOCKS=0` goes back), and only faces towards open ground count when the
-  common face is chosen. Art found only inside masses of wall is never put on a side.
+  common face is chosen. Art found only inside masses of wall is never put on a side. The rib
+  cages show one half of their pattern per tile, so every other tile is flipped and neighbours
+  join into the whole (`DEVILUTIONX_VR_HELL_MIRROR=0` goes back).
 - The automap held in the left hand is placed so that where the player is on it sits just over
   the hand, with a big gold arrow there (a quad layer over the map) pointing where the head
   looks. Before, the map was half a metre wide above the hand with the game's small arrow in its
