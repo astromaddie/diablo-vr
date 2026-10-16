@@ -1222,6 +1222,22 @@ bool ShadowedFloor(const PieceInfo &info)
 	return difference < 0.25F;
 }
 
+/**
+ * Whether a doorway is built on the tile (AddTile): a marked opening (door frame, grate, arch) in
+ * a wall that runs on to both sides of it. `alongX`: the way through runs along x.
+ */
+bool BuiltDoorway(int x, int y, bool &alongX)
+{
+	if (!Doorways || !InLevel(x, y) || wall[x][y] || leveltype == DTYPE_TOWN || dPiece[x][y] >= MAXTILES)
+		return false;
+	const PieceInfo &info = Classify(dPiece[x][y]);
+	const std::array<int16_t, 2> &arch = SpecialLayers(dSpecial[x][y] - 1);
+	const bool marked = info.nwLayer >= 0 || info.neLayer >= 0 || arch[0] >= 0 || arch[1] >= 0 || door[x][y];
+	alongX = IsWall(x, y - 1) && IsWall(x, y + 1) && !IsWall(x - 1, y) && !IsWall(x + 1, y);
+	const bool alongY = IsWall(x - 1, y) && IsWall(x + 1, y) && !IsWall(x, y - 1) && !IsWall(x, y + 1);
+	return marked && (alongX || alongY);
+}
+
 void AddTile(int x, int y)
 {
 	if (!plainFloorKnown)
@@ -1249,8 +1265,15 @@ void AddTile(int x, int y)
 		// A stairwell's round pillar is built with the stairwell.
 		if (stairPillar[x][y])
 			return;
-		const int16_t nw = info.nwLayer >= 0 ? info.nwLayer : (info.neLayer >= 0 ? info.neLayer : genericWallLayer);
-		const int16_t ne = info.neLayer >= 0 ? info.neLayer : (info.nwLayer >= 0 ? info.nwLayer : genericWallLayer);
+		int16_t nw = info.nwLayer >= 0 ? info.nwLayer : (info.neLayer >= 0 ? info.neLayer : genericWallLayer);
+		int16_t ne = info.neLayer >= 0 ? info.neLayer : (info.nwLayer >= 0 ? info.nwLayer : genericWallLayer);
+		// Beside a built doorway the wall's picture has the other half of the arch painted on it,
+		// which the doorway now has for real: plain wall there instead.
+		bool alongX;
+		if ((BuiltDoorway(x, y - 1, alongX) && alongX) || (BuiltDoorway(x, y + 1, alongX) && alongX))
+			nw = genericWallLayer;
+		if ((BuiltDoorway(x - 1, y, alongX) && !alongX) || (BuiltDoorway(x + 1, y, alongX) && !alongX))
+			ne = genericWallLayer;
 		// Where a flight runs into the wall, it has no face towards the stairs.
 		const auto open = [&](int nx, int ny) { return InLevel(nx, ny) && !wall[nx][ny] && !(stairCut[x][y] && stairTile[nx][ny]); };
 		if (open(x + 1, y))
