@@ -25,6 +25,7 @@
 #include "panels/spell_icons.hpp"
 #include "monster.h"
 #include "objects.h"
+#include "options.h"
 #include "player.h"
 #include "towners.h"
 #include "utils/log.hpp"
@@ -968,6 +969,11 @@ void ActorsRelease()
 
 void ActorsAddToScene(Scene &scene, const VrHandPose &leftHand, const VrHandPose &rightHand, bool pointerValid, const float pointerHit[3])
 {
+	// The weapon, the laser and the swing go with the dominant hand; the shield and the spell with
+	// the other. Gauntlets and the wrist vials stay on the hands they are made for.
+	const bool leftHanded = *GetOptions().Vr.dominantHand == VrHand::Left;
+	const VrHandPose &weaponHand = leftHanded ? leftHand : rightHand;
+	const VrHandPose &spellHand = leftHanded ? rightHand : leftHand;
 	pickables.clear();
 	const float dt = std::clamp(scene.time - lastTime, 0.F, 0.1F);
 	lastTime = scene.time;
@@ -986,25 +992,24 @@ void ActorsAddToScene(Scene &scene, const VrHandPose &leftHand, const VrHandPose
 		AddGauntlet(scene, rightHand, 1);
 		const Player &me = *MyPlayer;
 		// Life on the left wrist, mana on the right, as the game's orbs are on the left and right.
-		// The wrist display (DEVILUTIONX_VR_WRIST_HUD) puts the game's own orbs there instead.
-		static const bool wristHud = Knob("DEVILUTIONX_VR_WRIST_HUD", 0) != 0;
-		if (!wristHud) {
+		// The wrist display (the HUD setting) puts the game's own orbs there instead.
+		if (*GetOptions().Vr.hud != VrHudPlace::Wrists) {
 			AddVial(scene, leftHand, me._pMaxHP > 0 ? static_cast<float>(me._pHitPoints) / static_cast<float>(me._pMaxHP) : 0, { 0.42F, 0.02F, 0.02F });
 			AddVial(scene, rightHand, me._pMaxMana > 0 ? static_cast<float>(me._pMana) / static_cast<float>(me._pMaxMana) : 0, { 0.03F, 0.05F, 0.45F });
 		}
 		AddBelt(scene);
-		AddSpellHand(scene, leftHand);
+		AddSpellHand(scene, spellHand);
 		AddHeldPanel(scene);
 	}
 	if (hands && mainHand._itype != ItemType::Shield)
-		AddHeldItem(scene, mainHand, rightHand);
+		AddHeldItem(scene, mainHand, weaponHand);
 	if (hands)
-		AddHeldItem(scene, mainHand._itype == ItemType::Shield ? mainHand : offHand, leftHand);
+		AddHeldItem(scene, mainHand._itype == ItemType::Shield ? mainHand : offHand, spellHand);
 	// The laser is normally a layer over everything (xr_laser.cpp); DEVILUTIONX_VR_LASER_LAYER=0 draws it here.
 	static const bool laserInWorld = Knob("DEVILUTIONX_VR_LASER_LAYER", 1) == 0;
-	if (hands && laserInWorld && pointerValid && rightHand.valid)
-		AddPointer(scene, rightHand, pointerHit);
-	FeedbackAddToScene(scene, hands && pointerValid && rightHand.valid, pointerHit);
+	if (hands && laserInWorld && pointerValid && weaponHand.valid)
+		AddPointer(scene, weaponHand, pointerHit);
+	FeedbackAddToScene(scene, hands && pointerValid && weaponHand.valid, pointerHit);
 
 	// Blob shadows are particles and must be listed before the sparks that glow over them.
 	if (leveltype == DTYPE_TOWN) {

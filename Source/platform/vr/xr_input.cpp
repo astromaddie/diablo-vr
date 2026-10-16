@@ -140,16 +140,36 @@ VrSpellRing ring {};
 bool grabDown;
 bool panelInventoryDown;
 bool panelCharacterDown;
-/** Seated play: the world is raised by this much so the eyes are at a standing person's height. */
-const float SeatedRaise = Knob("DEVILUTIONX_VR_SEATED", 0) != 0 ? Knob("DEVILUTIONX_VR_SEATED_RAISE", 0.45F) : 0.F;
-/** 1: the right stick turns smoothly instead of in 45 degree steps. */
-const bool SmoothTurn = Knob("DEVILUTIONX_VR_SMOOTH_TURN", 0) != 0;
-/** Degrees of one snap turn. */
-const float SnapTurnAngle = Knob("DEVILUTIONX_VR_SNAP_TURN", 45) * 0.0174533F;
+/** Seated play (the settings page): the world is raised by this much so the eyes are at a standing person's height. */
+float SeatedRaise()
+{
+	static const float raise = Knob("DEVILUTIONX_VR_SEATED_RAISE", 0.45F);
+	return *Settings().seated ? raise : 0.F;
+}
+/** Radians of one snap turn. */
+float SnapTurnAngle()
+{
+	return static_cast<float>(*Settings().snapAngle) * 0.0174533F;
+}
 /** Radians per second of a smooth turn at full deflection. */
-const float SmoothTurnSpeed = Knob("DEVILUTIONX_VR_SMOOTH_TURN_SPEED", 2.0F);
-/** How dark the edge of view gets while moving or turning smoothly (0 turns the vignette off). */
-const float ComfortVignette = Knob("DEVILUTIONX_VR_VIGNETTE", 0.F);
+float SmoothTurnSpeed()
+{
+	return static_cast<float>(*Settings().smoothTurnSpeed) * 0.0174533F;
+}
+/** How dark the edge of view gets while moving or turning smoothly (0: no vignette). */
+float ComfortVignette()
+{
+	switch (*Settings().vignette) {
+	case VrVignette::Low:
+		return 0.35F;
+	case VrVignette::Medium:
+		return 0.6F;
+	case VrVignette::High:
+		return 0.85F;
+	default:
+		return 0.F;
+	}
+}
 /** 0: the old walk, the character stepping from tile to tile in eight directions with the view on it. */
 const bool FreeMovement = Knob("DEVILUTIONX_VR_FREE_MOVE", 1) != 0;
 /** Tiles per second at full stick: the game's own walk covers a tile in 8 of its 20 ticks a second. */
@@ -590,14 +610,18 @@ void SyncFreePosition()
 		freeValid = true;
 	}
 	worldOrigin[0] = freeX;
-	worldOrigin[1] = floorOffset + SeatedRaise;
+	worldOrigin[1] = floorOffset + SeatedRaise();
 	worldOrigin[2] = freeZ;
 }
 
 void Pulse(Hand hand, float amplitude, int milliseconds)
 {
+	// Scaled by the Haptics setting; off at 0.
+	const int strength = *Settings().haptics;
+	if (strength <= 0)
+		return;
 	XrHapticVibration vibration { XR_TYPE_HAPTIC_VIBRATION };
-	vibration.amplitude = amplitude;
+	vibration.amplitude = std::clamp(amplitude * static_cast<float>(strength) / 100.F, 0.F, 1.F);
 	vibration.duration = static_cast<XrDuration>(milliseconds) * 1000 * 1000;
 	vibration.frequency = XR_FREQUENCY_UNSPECIFIED;
 	XrHapticActionInfo hapticInfo { XR_TYPE_HAPTIC_ACTION_INFO };
@@ -861,6 +885,11 @@ void UpdateInput(XrTime time, float screenHeight)
 
 	const XrVector2f leftStick = StickState(Left);
 	const XrVector2f rightStick = StickState(Right);
+	// The sticks and buttons stay where they are; what a hand does follows the Dominant Hand
+	// setting. Below, "right" and "left" for a hand's pose, trigger and grip mean the dominant
+	// hand and the other one.
+	const Hand main = LeftHanded() ? Left : Right;
+	const Hand off = LeftHanded() ? Right : Left;
 
 	// Right thumbstick click: bring the screen back in front of the player.
 	// Left thumbstick click: automap. Both pressed in together: a screenshot of what the left eye
@@ -871,16 +900,8 @@ void UpdateInput(XrTime time, float screenHeight)
 	if (recenter && automap && !stickChord) {
 		stickChord = true;
 		screenshotRequested = true;
-		for (const XrPath hand : { handPath[Left], handPath[Right] }) {
-			XrHapticVibration vibration { XR_TYPE_HAPTIC_VIBRATION };
-			vibration.amplitude = 0.5F;
-			vibration.duration = 120 * 1000 * 1000; // ns
-			vibration.frequency = XR_FREQUENCY_UNSPECIFIED;
-			XrHapticActionInfo hapticInfo { XR_TYPE_HAPTIC_ACTION_INFO };
-			hapticInfo.action = hapticAction;
-			hapticInfo.subactionPath = hand;
-			xrApplyHapticFeedback(session, &hapticInfo, reinterpret_cast<XrHapticBaseHeader *>(&vibration));
-		}
+		Pulse(Left, 0.5F, 120);
+		Pulse(Right, 0.5F, 120);
 	}
 	if (!recenter && recenterDown && !stickChord) {
 		screenPlaced = false;
@@ -930,16 +951,16 @@ void UpdateInput(XrTime time, float screenHeight)
 	XrVector3f swingDirection { 0, 0, 0 };
 	worldPointerValid = false;
 	laser = {};
-	const bool leftValid = LocateHand(Left, time, leftAim);
-	const bool rightValid = LocateHand(Right, time, aim, &velocity);
+	const bool leftValid = LocateHand(off, time, leftAim);
+	const bool rightValid = LocateHand(main, time, aim, &velocity);
 	float hitDistance = 0;
 	// A bow being drawn keeps both hands for the bow, whatever panel they cross.
 	const bool panelsReachable = quadVisible && !drawingBow;
 	pointerOnQuad = rightValid && panelsReachable && RayToScreen(aim, screenHeight, pointerX, pointerY, &hitDistance);
-	leftPointing = !pointerOnQuad && leftValid && panelsReachable && (!world3d || uiMode || WristHud)
+	leftPointing = !pointerOnQuad && leftValid && panelsReachable && (!world3d || uiMode || WristHud())
 	    && RayToScreen(leftAim, screenHeight, pointerX, pointerY, &hitDistance);
 	pointerOnQuad = pointerOnQuad || leftPointing;
-	const bool casting = world3d && leftValid && !leftPointing && FloatState(triggerAction, Left) > (castingDown ? 0.3F : 0.6F);
+	const bool casting = world3d && leftValid && !leftPointing && FloatState(triggerAction, off) > (castingDown ? 0.3F : 0.6F);
 	if (!pointerOnQuad) {
 		pointerX = pointerY = -1;
 		if (world3d && rightValid)
@@ -985,7 +1006,7 @@ void UpdateInput(XrTime time, float screenHeight)
 	// something that has to be reached (item, object, townsperson, another player) is a plain
 	// click, and the character steps up to it. Anything else is an attack along the hand's
 	// aim, repeated while the trigger is held, which never moves the character.
-	const bool triggerDown = FloatState(triggerAction, leftPointing ? Left : Right) > (mouseLeftDown || clickingWorld || drawingBow ? 0.3F : 0.6F);
+	const bool triggerDown = FloatState(triggerAction, leftPointing ? off : main) > (mouseLeftDown || clickingWorld || drawingBow ? 0.3F : 0.6F);
 	// A bow is drawn with both hands: the right trigger closes by the left hand, the right hand
 	// pulls back and lets go. The arrow flies from the left hand along the line from the right one.
 	const bool bow = world3d && MyPlayer->UsesRangedWeapon() && leveltype != DTYPE_TOWN;
@@ -1004,7 +1025,7 @@ void UpdateInput(XrTime time, float screenHeight)
 	if (bow && !pointerOnQuad) {
 		if (triggerDown && !rightTriggerWas && handsApart < 0.2F) {
 			drawingBow = true;
-			Pulse(Right, 0.2F, 30);
+			Pulse(main, 0.2F, 30);
 		}
 		if (drawingBow && !triggerDown) {
 			drawingBow = false;
@@ -1019,14 +1040,14 @@ void UpdateInput(XrTime time, float screenHeight)
 				else
 					NetSendCmdLoc(MyPlayerId, true, CMD_RATTACKXY, origin + Displacement { static_cast<int>(std::lround(direction[0] * 6)), static_cast<int>(std::lround(direction[2] * 6)) });
 				lastAttackAt = SDL_GetTicks();
-				Pulse(Right, 0.5F, 50);
-				Pulse(Left, 0.35F, 50);
+				Pulse(main, 0.5F, 50);
+				Pulse(off, 0.35F, 50);
 			}
 		} else if (drawingBow) {
 			// The string's pull grows as the hands part.
 			static Uint32 lastCreak;
 			if (SDL_GetTicks() - lastCreak > 120) {
-				Pulse(Right, std::clamp(handsApart, 0.F, 0.7F) * 0.25F, 20);
+				Pulse(main, std::clamp(handsApart, 0.F, 0.7F) * 0.25F, 20);
 				lastCreak = SDL_GetTicks();
 			}
 		}
@@ -1040,7 +1061,7 @@ void UpdateInput(XrTime time, float screenHeight)
 		// The beam turns gold on what the trigger picks up, opens or talks to, with a tick in the hand.
 		laser.active = interact;
 		if (interact && !pointerWasActive)
-			Pulse(Right, 0.2F, 10);
+			Pulse(main, 0.2F, 10);
 		if (triggerDown && interact && !clickingWorld) {
 			clickingWorld = true;
 			SetMouseButton(mouseLeftDown, true, SDL_BUTTON_LEFT);
@@ -1057,10 +1078,10 @@ void UpdateInput(XrTime time, float screenHeight)
 		// The left hand casts the spell held ready: the right mouse button, aimed by the left hand.
 		// On a panel the right grip is the right button, as on the 2D screen: drink, read, use.
 		castingDown = casting;
-		const bool panelRightClick = pointerOnQuad && !leftPointing && FloatState(squeezeAction, Right) > (mouseRightDown ? 0.3F : 0.6F);
+		const bool panelRightClick = pointerOnQuad && !leftPointing && FloatState(squeezeAction, main) > (mouseRightDown ? 0.3F : 0.6F);
 		SetMouseButton(mouseRightDown, (casting && !speedbookOpen) || panelRightClick, SDL_BUTTON_RIGHT);
 		// The right grip takes hold of what is within reach: a click on it, as the mouse would.
-		const bool grab = FloatState(squeezeAction, Right) > (grabDown ? 0.3F : 0.6F);
+		const bool grab = FloatState(squeezeAction, main) > (grabDown ? 0.3F : 0.6F);
 		if (grab && !grabDown && !pointerOnQuad) {
 			float hand[3];
 			float handOrientation[4];
@@ -1080,13 +1101,13 @@ void UpdateInput(XrTime time, float screenHeight)
 					bool click = false;
 					SetMouseButton(click, true, SDL_BUTTON_LEFT);
 					SetMouseButton(click, false, SDL_BUTTON_LEFT);
-					Pulse(Right, 0.4F, 40);
+					Pulse(main, 0.4F, 40);
 				}
 			}
 		}
 		grabDown = grab;
 		// The speedbook: held open with the left grip, the left stick picks, letting go sets it.
-		const bool book = !leftPointing && FloatState(squeezeAction, Left) > (speedbookOpen ? 0.3F : 0.6F);
+		const bool book = !leftPointing && FloatState(squeezeAction, off) > (speedbookOpen ? 0.3F : 0.6F);
 		if (book && !speedbookOpen) {
 			ring = {};
 			const Player &me = *MyPlayer;
@@ -1103,7 +1124,7 @@ void UpdateInput(XrTime time, float screenHeight)
 					ring.count++;
 				}
 			}
-			Pulse(Left, 0.2F, 30);
+			Pulse(off, 0.2F, 30);
 		}
 		if (book && ring.count > 0 && (std::fabs(leftStick.x) > 0.5F || std::fabs(leftStick.y) > 0.5F)) {
 			// Clockwise from the top, as the ring stands round the hand.
@@ -1112,7 +1133,7 @@ void UpdateInput(XrTime time, float screenHeight)
 				angle += 6.2831853F;
 			const int chosen = static_cast<int>(std::lround(angle / 6.2831853F * static_cast<float>(ring.count))) % ring.count;
 			if (chosen != ring.selected)
-				Pulse(Left, 0.1F, 15);
+				Pulse(off, 0.1F, 15);
 			ring.selected = chosen;
 		}
 		if (!book && speedbookOpen && ring.count > 0 && ring.selected >= 0 && ring.selected < ring.count) {
@@ -1128,14 +1149,14 @@ void UpdateInput(XrTime time, float screenHeight)
 		// The hand feels what the swing did: a hard knock when the monster's life dropped, nothing on a miss.
 		if (swingTarget >= 0) {
 			if (Monsters[swingTarget].hitPoints < swingTargetLife) {
-				Pulse(Right, 0.95F, 90);
+				Pulse(main, 0.95F, 90);
 				swingTarget = -1;
 			} else if (SDL_GetTicks() - swingAt > 900) {
 				swingTarget = -1;
 			}
 		}
 	} else {
-		SetMouseButton(mouseRightDown, FloatState(squeezeAction, Right) > (mouseRightDown ? 0.3F : 0.6F), SDL_BUTTON_RIGHT);
+		SetMouseButton(mouseRightDown, FloatState(squeezeAction, main) > (mouseRightDown ? 0.3F : 0.6F), SDL_BUTTON_RIGHT);
 	}
 	SetKey(menuDown, BoolState(menuAction), SDLK_ESCAPE);
 	SetKey(viewEscapeDown, escapePulse > 0, SDLK_ESCAPE);
@@ -1149,7 +1170,7 @@ void UpdateInput(XrTime time, float screenHeight)
 	swinging = canSwing && speed > (swinging ? SwingSpeed / 2 : SwingSpeed);
 	if (swinging && !wasSwinging) {
 		// Only a light tick for the swing itself; the knock comes if it hits.
-		Pulse(Right, 0.15F, 25);
+		Pulse(main, 0.15F, 25);
 		// The swing's own direction picks the neighbouring monster; a swing straight up or down
 		// (no direction on the ground) goes where the player looks.
 		const XrQuaternionf turn { 0, std::sin(turnYaw / 2), 0, std::cos(turnYaw / 2) };
@@ -1197,15 +1218,15 @@ void UpdateInput(XrTime time, float screenHeight)
 	if (world3d) {
 		const float dt = frameStep;
 		bool smoothTurning = false;
-		if (SmoothTurn) {
+		if (*Settings().turnMode == VrTurnMode::Smooth) {
 			if (std::fabs(rightStick.x) > 0.25F) {
-				turnYaw -= rightStick.x * SmoothTurnSpeed * dt;
+				turnYaw -= rightStick.x * SmoothTurnSpeed() * dt;
 				smoothTurning = true;
 			}
 		} else {
 			const bool turn = std::fabs(rightStick.x) > 0.7F;
 			if (turn && !turnHeld)
-				turnYaw += rightStick.x > 0 ? -SnapTurnAngle : SnapTurnAngle;
+				turnYaw += rightStick.x > 0 ? -SnapTurnAngle() : SnapTurnAngle();
 			turnHeld = turn;
 		}
 		// With bumpers for the potions the stick is left to turning: a potion is not something
@@ -1215,7 +1236,7 @@ void UpdateInput(XrTime time, float screenHeight)
 		hotspellModifier = menuNavigator = false;
 		// Comfort: the edge of view darkens while the view moves without the head moving it.
 		const bool moving = MyPlayer->isWalking() || gliding || smoothTurning;
-		const float wanted = moving ? ComfortVignette : 0.F;
+		const float wanted = moving ? ComfortVignette() : 0.F;
 		vignetteNow += std::clamp(wanted - vignetteNow, -dt * 3, dt * 3);
 		VrWorldSetVignette(vignetteNow);
 	}
@@ -1245,8 +1266,8 @@ void UpdateInput(XrTime time, float screenHeight)
 		SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_X, 0);
 		SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_A, 0);
 	} else {
-		SDL_JoystickSetVirtualAxis(virtualPad, SDL_CONTROLLER_AXIS_TRIGGERLEFT, TriggerValue(FloatState(squeezeAction, Left)));   // Character
-		SDL_JoystickSetVirtualAxis(virtualPad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT, TriggerValue(FloatState(triggerAction, Left))); // Inventory
+		SDL_JoystickSetVirtualAxis(virtualPad, SDL_CONTROLLER_AXIS_TRIGGERLEFT, TriggerValue(FloatState(squeezeAction, off)));    // Character
+		SDL_JoystickSetVirtualAxis(virtualPad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT, TriggerValue(FloatState(triggerAction, off)));  // Inventory
 		SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_X, BoolState(xAction) ? 1 : 0);                            // Spell action
 		SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_A, BoolState(yAction) ? 1 : 0);                            // Cancel / spell list
 	}
@@ -1320,7 +1341,7 @@ const std::vector<const char *> &VrControlsHelp()
 	};
 	if (!vr::frameControllers)
 		return touch;
-	return vr::WristHud ? frameWithWrists : frame;
+	return vr::WristHud() ? frameWithWrists : frame;
 }
 
 } // namespace devilution

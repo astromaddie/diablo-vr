@@ -118,7 +118,7 @@ XrQuaternionf Facing(float dx, float dz, float tilt)
 
 /** Where the main panel splits between the wrists: belt slot 5 starts here (inv.cpp InvRect). */
 constexpr int WristSplit = 321;
-/** The HUD strip is on the wrists this frame (DEVILUTIONX_VR_WRIST_HUD). */
+/** The HUD strip is on the wrists this frame (the HUD setting). */
 bool wristsPlaced;
 
 /**
@@ -175,8 +175,9 @@ bool PlaceHeld(XrTime time, const XrPosef &head)
 		extraWidth = 0.32F;
 		return true;
 	}
+	// The tome and the automap are held in the hand that casts.
 	XrPosef hand;
-	if (!LocateHand(Left, time, hand))
+	if (!LocateHand(LeftHanded() ? Right : Left, time, hand))
 		return false;
 	const float tx = head.position.x - hand.position.x;
 	const float tz = head.position.z - hand.position.z;
@@ -282,7 +283,7 @@ void PlaceScreen(XrTime time)
 		head.position.y - drop,
 		head.position.z - std::cos(yaw) * distance,
 	};
-	if (hud && WristHud)
+	if (hud && WristHud())
 		wristsPlaced = PlaceWrists(time, head);
 	if (anchorPending)
 		headAnchor = head.position;
@@ -566,7 +567,7 @@ void VrPresent(SDL_Surface *surface)
 	held = nowHeld;
 	ShowHelpOnce();
 	// A held panel and the wrists move with the body or the hand: placed every frame.
-	if (!screenPlaced || held != Held::None || (world3d && !uiMode && WristHud))
+	if (!screenPlaced || held != Held::None || (world3d && !uiMode && WristHud()))
 		PlaceScreen(frameState.predictedDisplayTime);
 
 	XrCompositionLayerQuad quad { XR_TYPE_COMPOSITION_LAYER_QUAD };
@@ -582,8 +583,7 @@ void VrPresent(SDL_Surface *surface)
 	// In a game the 2D renderer leaves the world black behind panels, dialogs and shops (and the
 	// see-through backing of dialogs comes out black too). Black is uploaded transparent there, so
 	// only the interface floats over the world, as the desktop mirror shows it.
-	static const bool seeThroughPanels = Knob("DEVILUTIONX_VR_SEE_THROUGH_PANELS", 1) != 0;
-	const bool seeThrough = seeThroughPanels && world3d && uiMode && held == Held::None && surface != nullptr;
+	const bool seeThrough = *Settings().seeThroughPanels && world3d && uiMode && held == Held::None && surface != nullptr;
 	if (seeThrough)
 		clearBlack = { 0, 0, surface->w, surface->h };
 	else if (held != Held::Parchment)

@@ -24,6 +24,7 @@
 #define XR_USE_PLATFORM_WIN32
 #endif
 
+#include "options.h"
 #include "platform/vr/knob.h"
 #include "platform/vr/xr_d3d11.h"
 
@@ -37,10 +38,23 @@ inline const float ScreenWidth = Knob("DEVILUTIONX_VR_SCREEN_WIDTH", 2.6F);
 inline const float PanelDistance = Knob("DEVILUTIONX_VR_PANEL_DISTANCE", 1.1F);
 inline const float PanelWidth = Knob("DEVILUTIONX_VR_PANEL_WIDTH", 1.4F);
 inline const float HudWidth = Knob("DEVILUTIONX_VR_HUD_WIDTH", 0.6F);
-// DEVILUTIONX_VR_WRIST_HUD=1: the HUD strip splits in two and goes on the wrists, life and the
-// left of the belt on the left, mana and the right of the belt on the right. Width of each half.
-inline const bool WristHud = Knob("DEVILUTIONX_VR_WRIST_HUD", 0) != 0;
+// The settings page (options.h VrOptions), read live: changes there apply at once.
+inline const VrOptions &Settings()
+{
+	return GetOptions().Vr;
+}
+// The HUD strip split in two on the wrists: life and the left of the belt on the left, mana and
+// the right of the belt on the right. Width of each half.
+inline bool WristHud()
+{
+	return *Settings().hud == VrHudPlace::Wrists;
+}
 inline const float WristWidth = Knob("DEVILUTIONX_VR_WRIST_WIDTH", 0.17F);
+/** The hand that points, holds the weapon and swings; the other one casts and holds the speedbook. */
+inline bool LeftHanded()
+{
+	return *Settings().dominantHand == VrHand::Left;
+}
 // 0: the laser is drawn in the world, under the screen and the panels, as it used to be.
 inline const bool LaserLayer = Knob("DEVILUTIONX_VR_LASER_LAYER", 1) != 0;
 // Eye height used when the runtime has no floor-level tracking space.
