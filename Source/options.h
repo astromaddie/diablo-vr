@@ -921,6 +921,12 @@ struct VrOptions : OptionCategoryBase {
 	OptionEntryBoolean seeThroughPanels;
 	/** @brief Save to the autosave slot after every level change. */
 	OptionEntryBoolean autosave;
+	/** @brief Pointing at an item, object or monster shows its description beside it. */
+	OptionEntryBoolean itemCards;
+	/** @brief Potions are taken off the belt with a grip and drunk by bringing them to the mouth. */
+	OptionEntryBoolean beltGrab;
+	/** @brief Spells are cast with a flick of the hand instead of the trigger alone. */
+	OptionEntryBoolean spellGestures;
 };
 #endif
 

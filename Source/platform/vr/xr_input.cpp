@@ -1282,6 +1282,7 @@ void UpdateInput(XrTime time, float screenHeight)
 	manaPotion = manaPotion || BoolState(bumperAction, handPath[Right]);
 	SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_LEFTSHOULDER, healthPotion ? 1 : 0);
 	SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, manaPotion ? 1 : 0);
+	UpdateHaptics(main, off, pointerOnQuad, leftPointing ? off : main, mouseLeftDown);
 	// View's short press reaches the game as Select only on release, so holding it to re-centre
 	// does not open the game menu as well.
 	SDL_JoystickSetVirtualButton(virtualPad, SDL_CONTROLLER_BUTTON_BACK, (hotspellModifier || backPulse > 0) ? 1 : 0);

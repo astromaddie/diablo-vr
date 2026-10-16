@@ -1000,6 +1000,9 @@ VrOptions::VrOptions()
           })
     , seeThroughPanels("See-through Panels", OptionEntryFlags::None, N_("See-through Panels"), N_("Show only the interface of panels and dialogs, over the world."), VrEnvironment("DEVILUTIONX_VR_SEE_THROUGH_PANELS", 1) != 0)
     , autosave("Autosave", OptionEntryFlags::None, N_("Autosave"), N_("Save to a separate autosave slot after every level change. The normal save is never touched."), VrEnvironment("DEVILUTIONX_VR_AUTOSAVE", 1) != 0)
+    , itemCards("Item Cards", OptionEntryFlags::None, N_("Item Cards"), N_("Pointing at an item, object or monster shows its description beside it."), VrEnvironment("DEVILUTIONX_VR_ITEM_CARDS", 1) != 0)
+    , beltGrab("Belt Grab", OptionEntryFlags::None, N_("Belt Grab"), N_("Take a potion off the belt with the grip and drink it by bringing it to your mouth."), VrEnvironment("DEVILUTIONX_VR_BELT_GRAB", 1) != 0)
+    , spellGestures("Spell Gestures", OptionEntryFlags::None, N_("Spell Gestures"), N_("Cast with a flick of the hand while holding the trigger, instead of the trigger alone."), VrEnvironment("DEVILUTIONX_VR_SPELL_GESTURES", 0) != 0)
 {
 }
 
@@ -1016,6 +1019,9 @@ std::vector<OptionEntryBase *> VrOptions::GetEntries()
 		&hud,
 		&seeThroughPanels,
 		&autosave,
+		&itemCards,
+		&beltGrab,
+		&spellGestures,
 	};
 }
 #endif

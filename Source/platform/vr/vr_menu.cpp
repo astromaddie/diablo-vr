@@ -2,7 +2,7 @@
  * @file vr_menu.cpp
  *
  * The VR settings in the game menu (Options, VR Settings): the settings page of options.h
- * (VrOptions) as two short pages of the game's own menu, so they can be changed in the headset
+ * (VrOptions) as three short pages of the game's own menu, so they can be changed in the headset
  * during a game. Choosing a line steps its value; every change is saved at once.
  */
 #include "platform/vr/vr_internal.h"
@@ -26,6 +26,7 @@ std::array<std::string, 6> labels;
 void ShowTop(bool);
 void ShowComfort(bool);
 void ShowInterface(bool);
+void ShowHands(bool);
 
 template <typename T>
 void Step(OptionEntryEnum<T> &entry, int count)
@@ -186,6 +187,57 @@ void ShowInterface(bool)
 	gmenu_set_items(interfaceMenu, nullptr);
 }
 
+// ---- Hands
+
+TMenuItem handsMenu[] = {
+	// clang-format off
+	{ GMENU_ENABLED, nullptr, nullptr },
+	{ GMENU_ENABLED, nullptr, nullptr },
+	{ GMENU_ENABLED, nullptr, nullptr },
+	{ GMENU_ENABLED, "Previous Menu", &ShowTop },
+	{ GMENU_ENABLED, nullptr, nullptr },
+	// clang-format on
+};
+
+void LabelHands()
+{
+	VrOptions &settings = GetOptions().Vr;
+	labels[0] = "Item Cards: " + OnOff(*settings.itemCards);
+	labels[1] = "Belt Grab: " + OnOff(*settings.beltGrab);
+	labels[2] = "Spell Gestures: " + OnOff(*settings.spellGestures);
+	for (int i = 0; i < 3; i++)
+		handsMenu[i].pszStr = labels[i].c_str();
+}
+
+void Toggle(OptionEntryBoolean &entry)
+{
+	entry.SetValue(!*entry);
+	SaveOptions();
+	LabelHands();
+}
+
+void HandsItemCards(bool)
+{
+	Toggle(GetOptions().Vr.itemCards);
+}
+void HandsBeltGrab(bool)
+{
+	Toggle(GetOptions().Vr.beltGrab);
+}
+void HandsSpellGestures(bool)
+{
+	Toggle(GetOptions().Vr.spellGestures);
+}
+
+void ShowHands(bool)
+{
+	handsMenu[0].fnMenu = &HandsItemCards;
+	handsMenu[1].fnMenu = &HandsBeltGrab;
+	handsMenu[2].fnMenu = &HandsSpellGestures;
+	LabelHands();
+	gmenu_set_items(handsMenu, nullptr);
+}
+
 // ---- The page the Options menu opens
 
 void Back(bool activate)
@@ -198,6 +250,7 @@ TMenuItem topMenu[] = {
 	// clang-format off
 	{ GMENU_ENABLED, "Comfort",       &ShowComfort   },
 	{ GMENU_ENABLED, "Interface",     &ShowInterface },
+	{ GMENU_ENABLED, "Hands",         &ShowHands     },
 	{ GMENU_ENABLED, "Previous Menu", &Back          },
 	{ GMENU_ENABLED, nullptr,         nullptr        },
 	// clang-format on
