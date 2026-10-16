@@ -136,6 +136,14 @@ The bindings are only suggested when the runtime has `XR_VALVE_frame_controller_
   `DEVILUTIONX_VR_DEBUG_OBJECT=doorway` with `DEVILUTIONX_VR_DEBUG_DOORWAY=<n>` has the
   headset-free renderer look straight at a level's n-th built doorway. Checked that way: the
   cathedral (level 2), the catacombs (6) and the caves (10). Hell (14) has no built doorways.
+- Hell's walls. The art has two kinds: rib cages of bone, which are walls, and blocks of red flesh
+  drawn as a box (its top and two front sides) with a horned bone ridge along the top's back edges.
+  The blocks were taken as walls too, stretching sides, top and ridge up one 2.9 m face, and since
+  the most common wall face is the red top of a block (inside a mass of wall, where no side shows),
+  faces with no art of their own were red as well. Now the blocks are built from their sides,
+  as high as the top stands in the art, with the ridge as a cut-out on top
+  (`DEVILUTIONX_VR_HELL_BLOCKS=0` goes back), and only faces towards open ground count when the
+  common face is chosen. Art found only inside masses of wall is never put on a side.
 - The automap held in the left hand is placed so that where the player is on it sits just over
   the hand, with a big gold arrow there (a quad layer over the map) pointing where the head
   looks. Before, the map was half a metre wide above the hand with the game's small arrow in its
