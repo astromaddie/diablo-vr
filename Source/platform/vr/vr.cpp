@@ -159,6 +159,7 @@ bool PlaceHeld(XrTime time, const XrPosef &head)
 	const float fz = -std::cos(yaw);
 	extraWidth = 0;
 	clearBlack = {};
+	mapArrow.visible = false;
 	if (held == Held::Satchel) {
 		// The backpack grid (inv.cpp InvRect: 10 x 4 cells of 29 pixels from (17, 222) in the panel).
 		const Rectangle &panel = GetRightPanel();
@@ -175,7 +176,7 @@ bool PlaceHeld(XrTime time, const XrPosef &head)
 		return true;
 	}
 	XrPosef hand;
-	if (!Locate(aimSpace[Left], time, hand))
+	if (!LocateHand(Left, time, hand))
 		return false;
 	const float tx = head.position.x - hand.position.x;
 	const float tz = head.position.z - hand.position.z;
@@ -188,12 +189,41 @@ bool PlaceHeld(XrTime time, const XrPosef &head)
 		quadWidth = 0.26F;
 		return true;
 	}
-	// The automap over the whole view, black shown as the parchment.
+	// The automap over the whole view, black shown as the parchment, held so that where the
+	// player is on it sits just over the left hand.
 	heldRect = { 0, 0, gnScreenWidth, gnViewportHeight };
 	clearBlack = heldRect;
-	screenPose.position = { hand.position.x, hand.position.y + 0.16F, hand.position.z };
 	screenPose.orientation = Facing(tx, tz, -0.3F);
 	quadWidth = 0.5F;
+	// Where the game draws the player's arrow (automap.cpp DrawAutomapPlr): the middle of the
+	// view, moved by however far the map has been scrolled.
+	const Player &player = *MyPlayer;
+	const int px = player.position.tile.x - 2 * AutomapOffset.deltaX - ViewPosition.x;
+	const int py = player.position.tile.y - 2 * AutomapOffset.deltaY - ViewPosition.y;
+	const float arrowX = static_cast<float>(gnScreenWidth / 2 + (px - py) * AmLine(AmLineLength::DoubleTile));
+	const float arrowY = static_cast<float>((gnScreenHeight - GetMainPanel().size.height) / 2 + (px + py) * AmLine(AmLineLength::FullTile));
+	const float metresPerPixel = quadWidth / static_cast<float>(heldRect.w);
+	const XrVector3f right = Rotate(screenPose.orientation, { 1, 0, 0 });
+	const XrVector3f up = Rotate(screenPose.orientation, { 0, 1, 0 });
+	const XrVector3f normal = Rotate(screenPose.orientation, { 0, 0, 1 });
+	const XrVector3f anchor { hand.position.x, hand.position.y + 0.07F, hand.position.z };
+	const float dx = (arrowX - static_cast<float>(heldRect.w) / 2) * metresPerPixel;
+	const float dy = (static_cast<float>(heldRect.h) / 2 - arrowY) * metresPerPixel;
+	screenPose.position = { anchor.x - right.x * dx - up.x * dy, anchor.y - right.y * dx - up.y * dy, anchor.z - right.z * dx - up.z * dy };
+	// The big arrow points where the player looks, drawn as the map draws directions: a step
+	// along the tile x axis goes right and down on it, one along y left and down, at 2:1.
+	float headWorld[3];
+	float headTurned[4];
+	ToWorld(head, headWorld, headTurned);
+	const XrVector3f look = Rotate({ headTurned[0], headTurned[1], headTurned[2], headTurned[3] }, { 0, 0, -1 });
+	const float mapX = 2 * (look.x - look.z);
+	const float mapY = look.x + look.z;
+	if (mapX * mapX + mapY * mapY > 1e-4F) {
+		const float angle = std::atan2(-mapX, -mapY);
+		mapArrow.visible = true;
+		mapArrow.pose.orientation = Multiply(screenPose.orientation, { 0, 0, std::sin(angle / 2), std::cos(angle / 2) });
+		mapArrow.pose.position = { anchor.x + normal.x * 0.003F, anchor.y + normal.y * 0.003F, anchor.z + normal.z * 0.003F };
+	}
 	return true;
 }
 
@@ -508,6 +538,12 @@ void VrPresent(SDL_Surface *surface)
 	static int worldFrames;
 	if (autostart && debugLevel != 0 && showWorld && ++worldFrames == 200)
 		EnterLevel(debugLevel);
+	// Debug aid: DEVILUTIONX_VR_DEBUG_AUTOMAP=<n> opens the automap n frames into a game, for
+	// checking the map in the hand with nobody there.
+	static const int debugAutomap = static_cast<int>(Knob("DEVILUTIONX_VR_DEBUG_AUTOMAP", 0));
+	static int automapFrames;
+	if (debugAutomap > 0 && showWorld && gbRunGame && ++automapFrames == debugAutomap && !AutomapActive)
+		StartAutomap();
 	if (showWorld != world3d) {
 		world3d = showWorld;
 		LogVerbose("VR: showing {}", world3d ? "the world" : "the screen");
@@ -538,7 +574,8 @@ void VrPresent(SDL_Surface *surface)
 	XrCompositionLayerProjectionView projectionViews[2];
 	XrCompositionLayerQuad extra { XR_TYPE_COMPOSITION_LAYER_QUAD };
 	XrCompositionLayerQuad laserQuads[2];
-	const XrCompositionLayerBaseHeader *layers[5];
+	XrCompositionLayerQuad arrowQuad;
+	const XrCompositionLayerBaseHeader *layers[6];
 	uint32_t layerCount = 0;
 	// Debug aid: a headset nobody wears is told not to render. See RenderWorld.
 	static const bool forceRender = Knob("DEVILUTIONX_VR_FORCE_RENDER", 0) != 0;
@@ -593,6 +630,8 @@ void VrPresent(SDL_Surface *surface)
 			extra.size = { extraWidth, extraWidth * static_cast<float>(extraRect.h) / static_cast<float>(extraRect.w) };
 			layers[layerCount++] = reinterpret_cast<XrCompositionLayerBaseHeader *>(&extra);
 		}
+		if (quadVisible && held == Held::Parchment && MapArrowLayer(arrowQuad))
+			layers[layerCount++] = reinterpret_cast<XrCompositionLayerBaseHeader *>(&arrowQuad);
 		// The laser last, over the screen and every panel.
 		const uint32_t laserCount = LaserLayers(frameState.predictedDisplayTime, laserQuads);
 		for (uint32_t i = 0; i < laserCount; i++)
@@ -612,7 +651,7 @@ void VrPresent(SDL_Surface *surface)
 	static uint32_t lastLayerCount;
 	static const bool logLayers = Knob("DEVILUTIONX_VR_DEBUG_HANDS", 0) != 0;
 	if (logLayers && layerCount != lastLayerCount) {
-		LogInfo("VR: {} layer(s), xrEndFrame -> {} (laser {}, on a panel {}, wrists {})", layerCount, static_cast<int>(result), laser.visible, laser.onQuad, wristsPlaced);
+		LogInfo("VR: {} layer(s), xrEndFrame -> {} (laser {}, on a panel {}, wrists {}, map arrow {})", layerCount, static_cast<int>(result), laser.visible, laser.onQuad, wristsPlaced, held == Held::Parchment && mapArrow.visible);
 		lastLayerCount = layerCount;
 	}
 	if (result != lastResult) {

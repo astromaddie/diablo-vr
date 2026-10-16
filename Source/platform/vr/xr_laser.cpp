@@ -4,7 +4,8 @@
  * The laser pointer as composition layers of its own: a beam from the pointing hand to what it
  * hits and a dot where it lands on a screen or panel. The screen and the panels are quad layers
  * the compositor draws over the eyes' picture, so a beam drawn in the world would vanish behind
- * the very panel it points at. These two quads are submitted last, over everything.
+ * the very panel it points at. These two quads are submitted last, over everything. The big
+ * arrow on the automap held in the left hand is a quad of the same kind, over the map.
  */
 #include "platform/vr/vr_internal.h"
 
@@ -16,15 +17,29 @@ namespace devilution {
 namespace vr {
 
 LaserPointer laser;
+MapArrow mapArrow;
 
 namespace {
 
 /** Beam (idle and over something the trigger acts on) and dot pictures, made once a session. */
 XrSwapchain beamSwapchain[2];
 XrSwapchain dotSwapchain;
+XrSwapchain arrowSwapchain;
 constexpr int BeamWidth = 128;
 constexpr int BeamHeight = 16;
 constexpr int DotSize = 64;
+constexpr int ArrowSize = 64;
+
+/** Whether (x, y) is inside the polygon of `count` corners `xs`, `ys` (even-odd rule). */
+bool Inside(float x, float y, const float *xs, const float *ys, int count)
+{
+	bool inside = false;
+	for (int i = 0, j = count - 1; i < count; j = i++) {
+		if ((ys[i] > y) != (ys[j] > y) && x < (xs[j] - xs[i]) * (y - ys[i]) / (ys[j] - ys[i]) + xs[i])
+			inside = !inside;
+	}
+	return inside;
+}
 
 /** One picture, uploaded once: the runtime shows the image released last for as long as it is used. */
 XrSwapchain MakePicture(int width, int height, const std::vector<Uint32> &pixels)
@@ -92,8 +107,37 @@ bool MakePictures()
 		}
 	}
 	dotSwapchain = MakePicture(DotSize, DotSize, pixels);
+	// The map arrow: a gold arrowhead pointing up the picture, with a dark rim, sampled four
+	// times a pixel for smooth edges.
+	constexpr float ArrowX[4] = { 0.F, 0.62F, 0.F, -0.62F };
+	constexpr float ArrowY[4] = { 0.9F, -0.72F, -0.34F, -0.72F };
+	float rimX[4];
+	float rimY[4];
+	for (int i = 0; i < 4; i++) {
+		rimX[i] = ArrowX[i] * 1.22F;
+		rimY[i] = (ArrowY[i] + 0.05F) * 1.18F - 0.05F;
+	}
+	std::vector<Uint32> arrow(static_cast<size_t>(ArrowSize) * ArrowSize);
+	for (int y = 0; y < ArrowSize; y++) {
+		for (int x = 0; x < ArrowSize; x++) {
+			float fill = 0;
+			float rim = 0;
+			for (int sample = 0; sample < 4; sample++) {
+				const float u = (static_cast<float>(x) + 0.25F + 0.5F * static_cast<float>(sample % 2)) / ArrowSize * 2 - 1;
+				const float v = 1 - (static_cast<float>(y) + 0.25F + 0.5F * static_cast<float>(sample / 2)) / ArrowSize * 2;
+				if (Inside(u, v, ArrowX, ArrowY, 4))
+					fill += 0.25F;
+				else if (Inside(u, v, rimX, rimY, 4))
+					rim += 0.25F;
+			}
+			const float alpha = fill + rim * 0.85F;
+			const float bright = alpha > 0 ? fill / alpha : 0;
+			arrow[static_cast<size_t>(y) * ArrowSize + x] = pixel(bright, bright * 0.78F, bright * 0.2F, alpha);
+		}
+	}
+	arrowSwapchain = MakePicture(ArrowSize, ArrowSize, arrow);
 	SDL_FreeFormat(format);
-	return beamSwapchain[0] != XR_NULL_HANDLE && beamSwapchain[1] != XR_NULL_HANDLE && dotSwapchain != XR_NULL_HANDLE;
+	return beamSwapchain[0] != XR_NULL_HANDLE && beamSwapchain[1] != XR_NULL_HANDLE && dotSwapchain != XR_NULL_HANDLE && arrowSwapchain != XR_NULL_HANDLE;
 }
 
 XrVector3f Sub(const XrVector3f &a, const XrVector3f &b)
@@ -189,11 +233,22 @@ uint32_t LaserLayers(XrTime time, XrCompositionLayerQuad layers[2])
 	return count;
 }
 
+bool MapArrowLayer(XrCompositionLayerQuad &layer)
+{
+	if (!mapArrow.visible || !MakePictures())
+		return false;
+	layer = Quad(arrowSwapchain, ArrowSize, ArrowSize);
+	layer.pose = mapArrow.pose;
+	layer.size = { 0.04F, 0.04F };
+	return true;
+}
+
 void ReleaseLaser()
 {
 	// The session takes its swapchains with it.
-	beamSwapchain[0] = beamSwapchain[1] = dotSwapchain = XR_NULL_HANDLE;
+	beamSwapchain[0] = beamSwapchain[1] = dotSwapchain = arrowSwapchain = XR_NULL_HANDLE;
 	laser = {};
+	mapArrow = {};
 }
 
 } // namespace vr
