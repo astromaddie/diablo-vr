@@ -7,6 +7,8 @@
  */
 #include "platform/vr/vr_internal.h"
 
+#include "platform/vr/input_rules.hpp"
+
 #include <algorithm>
 #include <unordered_map>
 
@@ -130,8 +132,7 @@ void UpdateHaptics(Hand main, Hand off, bool onPanel, Hand pointingHand, bool mo
 		const int maxMana = std::max(me._pMaxMana, 1);
 		if (now.life < before.life) {
 			// A blow: both hands, harder the more it took.
-			const float share = static_cast<float>(before.life - now.life) / static_cast<float>(maxLife);
-			const float strength = std::clamp(0.35F + share * 4, 0.35F, 1.F);
+			const float strength = rules::BlowStrength(before.life - now.life, maxLife);
 			Pulse(Left, strength, 60);
 			Pulse(Right, strength, 60);
 		} else if (now.life - before.life > maxLife / 33) {

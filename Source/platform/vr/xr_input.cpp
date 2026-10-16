@@ -20,6 +20,8 @@
  */
 #include "platform/vr/vr_internal.h"
 
+#include "platform/vr/input_rules.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cassert>
@@ -82,9 +84,7 @@ XrAction viewAction;
 XrAction dpadAction[4];
 /** The controllers in use are the Steam Frame's. */
 bool frameControllers;
-bool viewDown;
-bool viewRecentered;
-Uint32 viewSince;
+rules::ViewButton viewButton;
 /** A short press of View: the game's Back (Select) for a few frames, or Escape in a game. */
 int backPulse;
 int escapePulse;
@@ -897,17 +897,10 @@ std::array<bool, 2> UpdateBeltGrab(XrTime time)
 	const XrVector3f look = Rotate(head.orientation, { 0, 0, -1 });
 	const float flat = std::max(std::sqrt(look.x * look.x + look.z * look.z), 1e-3F);
 	const XrVector3f forward { look.x / flat, 0, look.z / flat };
-	const XrVector3f right { -forward.z, 0, forward.x };
-	const XrVector3f waist { head.position.x, head.position.y - 0.68F, head.position.z };
 	// The mouth: a little below and in front of the eyes.
 	const XrVector3f down = Rotate(head.orientation, { 0, -1, 0 });
 	const XrVector3f mouth { head.position.x + look.x * 0.07F + down.x * 0.1F, head.position.y + look.y * 0.07F + down.y * 0.1F, head.position.z + look.z * 0.07F + down.z * 0.1F };
-	const auto distance = [](const XrVector3f &a, const XrVector3f &b) {
-		const float dx = a.x - b.x;
-		const float dy = a.y - b.y;
-		const float dz = a.z - b.z;
-		return std::sqrt(dx * dx + dy * dy + dz * dz);
-	};
+	const auto point = [](const XrVector3f &v) { return rules::Point3 { v.x, v.y, v.z }; };
 	for (const Hand hand : { Left, Right }) {
 		XrPosef pose;
 		const bool tracked = LocateHand(hand, time, pose);
@@ -920,7 +913,7 @@ std::array<bool, 2> UpdateBeltGrab(XrTime time)
 			const Item &item = MyPlayer->SpdList[beltSlot];
 			if (item.isEmpty()) {
 				beltSlot = -1;
-			} else if (tracked && distance(pose.position, mouth) < 0.14F) {
+			} else if (tracked && rules::Distance(point(pose.position), point(mouth)) < rules::MouthReach) {
 				UseInvItem(INVITEM_BELT_FIRST + beltSlot);
 				beltSlot = -1;
 			} else if (!grip) {
@@ -931,21 +924,13 @@ std::array<bool, 2> UpdateBeltGrab(XrTime time)
 		}
 		if (!closed || beltSlot >= 0)
 			continue;
-		int nearest = -1;
-		float best = 0.13F;
+		uint32_t potions = 0;
 		for (int slot = 0; slot < MaxBeltItems; slot++) {
 			const Item &item = MyPlayer->SpdList[slot];
-			if (item.isEmpty() || !IsPotion(item))
-				continue;
-			const float angle = (static_cast<float>(slot) - 3.5F) * 0.3F;
-			const XrVector3f out { forward.x * std::cos(angle) + right.x * std::sin(angle), 0, forward.z * std::cos(angle) + right.z * std::sin(angle) };
-			const XrVector3f at { waist.x + out.x * 0.27F, waist.y, waist.z + out.z * 0.27F };
-			const float away = distance(pose.position, at);
-			if (away < best) {
-				best = away;
-				nearest = slot;
-			}
+			if (!item.isEmpty() && IsPotion(item))
+				potions |= 1U << slot;
 		}
+		const int nearest = rules::NearestBeltSlot(point(pose.position), point(head.position), forward.x, forward.z, potions);
 		if (nearest >= 0) {
 			beltSlot = nearest;
 			beltHand = hand;
@@ -1014,19 +999,14 @@ void UpdateInput(XrTime time, float screenHeight)
 	// The Frame's View button. Held for a second it re-centres as the right stick's click does,
 	// with a buzz in both hands to say so. A short press is the gamepad's Select in the menus
 	// (back); in a game it closes what is open, or brings up the help with the controls.
-	const bool view = BoolState(viewAction);
-	if (view && !viewDown) {
-		viewSince = SDL_GetTicks();
-		viewRecentered = false;
-	}
-	if (view && !viewRecentered && SDL_GetTicks() - viewSince >= 1000) {
-		viewRecentered = true;
+	const rules::ViewEvent viewEvent = rules::StepView(viewButton, BoolState(viewAction), SDL_GetTicks());
+	if (viewEvent == rules::ViewEvent::Recentre) {
 		screenPlaced = false;
 		anchorPending = true;
 		Pulse(Left, 0.6F, 80);
 		Pulse(Right, 0.6F, 80);
 	}
-	if (!view && viewDown && !viewRecentered) {
+	if (viewEvent == rules::ViewEvent::Tap) {
 		if (!world3d)
 			backPulse = 6;
 		else if (HelpFlag)
@@ -1036,7 +1016,6 @@ void UpdateInput(XrTime time, float screenHeight)
 		else
 			escapePulse = 2;
 	}
-	viewDown = view;
 
 	// Right hand: pointer and weapon swing. While the left trigger casts, the left hand aims
 	// instead. The left hand also points where the right one misses: at the right wrist, or at
@@ -1372,9 +1351,9 @@ void UpdateInput(XrTime time, float screenHeight)
 	// back, as the gamepad's A and B do there (and every other game on it). In play A and B
 	// stay the primary and secondary actions. The switch waits for both to be up: an A that
 	// opens a shop must not also buy the first thing in it.
-	static bool menuButtons;
-	if (!BoolState(aAction) && !BoolState(bAction))
-		menuButtons = frameControllers && (!world3d || InGameMenu() || QuestLogIsOpen);
+	static bool menuButtonsLatch;
+	const bool menuButtons = rules::LatchMenuButtons(menuButtonsLatch, BoolState(aAction), BoolState(bAction),
+	    rules::MenuButtonsWanted(frameControllers, world3d, InGameMenu(), QuestLogIsOpen));
 	if (menuButtons) {
 		SDL_JoystickSetVirtualAxis(virtualPad, SDL_CONTROLLER_AXIS_TRIGGERLEFT, TriggerValue(0));
 		SDL_JoystickSetVirtualAxis(virtualPad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT, TriggerValue(0));
