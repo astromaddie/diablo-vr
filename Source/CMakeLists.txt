@@ -1089,6 +1089,7 @@ if(DEVILUTIONX_VR)
     platform/vr/xr_input.cpp
     platform/vr/xr_frame.cpp
     platform/vr/xr_laser.cpp
+    platform/vr/vr_menu.cpp
     platform/vr/render/gpu.cpp
     platform/vr/render/shaders.cpp
     platform/vr/render/renderer.cpp

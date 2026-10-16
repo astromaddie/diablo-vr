@@ -56,6 +56,9 @@ void VrShutdown();
  */
 const std::vector<const char *> &VrControlsHelp();
 
+/** Shows the VR settings in the game menu; `back` is called for its Previous Menu line. */
+void VrSettingsMenu(void (*back)(bool));
+
 /** True while the headset shows the level in 3D, so the 2D renderer need not draw it. */
 bool VrShowsWorld();
 

@@ -30,6 +30,10 @@
 #include "controls/touch/renderers.h"
 #endif
 
+#ifdef DEVILUTIONX_VR
+#include "platform/vr/vr.h"
+#endif
+
 namespace devilution {
 
 bool isGameMenuOpen = false;
@@ -44,6 +48,9 @@ void GamemenuMusicVolume(bool bActivate);
 void GamemenuSoundVolume(bool bActivate);
 void GamemenuBrightness(bool bActivate);
 void GamemenuSpeed(bool bActivate);
+#ifdef DEVILUTIONX_VR
+void GamemenuVrSettings(bool bActivate);
+#endif
 
 /** Contains the game menu items of the single player menu. */
 TMenuItem sgSingleMenu[] = {
@@ -74,6 +81,9 @@ TMenuItem sgOptionsMenu[] = {
 	{ GMENU_ENABLED | GMENU_SLIDER, nullptr,             &GamemenuSoundVolume  },
 	{ GMENU_ENABLED | GMENU_SLIDER, N_("Gamma"),         &GamemenuBrightness   },
 	{ GMENU_ENABLED | GMENU_SLIDER, N_("Speed"),         &GamemenuSpeed        },
+#ifdef DEVILUTIONX_VR
+	{ GMENU_ENABLED               , N_("VR Settings"),   &GamemenuVrSettings   },
+#endif
 	{ GMENU_ENABLED               , N_("Previous Menu"), &GamemenuPrevious     },
 	{ GMENU_ENABLED               , nullptr,             nullptr               },
 	// clang-format on
@@ -188,8 +198,18 @@ void GamemenuOptions(bool /*bActivate*/)
 	GamemenuGetSound();
 	GamemenuGetBrightness();
 	GamemenuGetSpeed();
+#ifdef DEVILUTIONX_VR
+	sgOptionsMenu[4].setEnabled(VrEnabled);
+#endif
 	gmenu_set_items(sgOptionsMenu, nullptr);
 }
+
+#ifdef DEVILUTIONX_VR
+void GamemenuVrSettings(bool /*bActivate*/)
+{
+	VrSettingsMenu(&GamemenuOptions);
+}
+#endif
 
 void GamemenuMusicVolume(bool bActivate)
 {
