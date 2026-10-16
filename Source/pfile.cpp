@@ -38,6 +38,7 @@
 #include "utils/endian_swap.hpp"
 #include "utils/file_util.h"
 #include "utils/language.h"
+#include "utils/log.hpp"
 #include "utils/parse_int.hpp"
 #include "utils/paths.h"
 #include "utils/sdl_compat.h"
@@ -763,7 +764,9 @@ void UpdateAutosave()
 		return;
 
 	AutosavePending = false;
+	const Uint64 started = SDL_GetPerformanceCounter();
 	AutosaveGame();
+	LogVerbose("Autosave written in {:.1f} ms", static_cast<double>(SDL_GetPerformanceCounter() - started) * 1000.0 / static_cast<double>(SDL_GetPerformanceFrequency()));
 }
 
 void pfile_remove_autosave(uint32_t saveNum)
