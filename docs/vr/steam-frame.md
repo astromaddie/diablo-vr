@@ -53,7 +53,13 @@ with room to spare (see below).
 
 ## Settings
 
-The VR mode's settings are still environment variables. On the Frame the launcher reads them from
+The everyday settings are now in the game, under Menu, Options, VR Settings (and VR on the title
+screen's Settings): a `VR` category in DevilutionX's options, saved in `diablo.ini`, read live by
+the VR code. The pages are Comfort (turning, snap angle, turn speed, vignette, seated), Interface
+(dominant hand, haptics, HUD, see-through panels, autosave) and Hands (item cards, belt grab, spell
+gestures). Their environment variables only seed the first values.
+
+The rest are still environment variables. On the Frame the launcher reads them from
 `vr-settings.env` in the data folder, one `NAME=value` a line. `deploy.sh` installs
 `tools/steam_frame/vr-settings.env` there once and leaves it alone after that. `launch-once.env`
 and `launch-once.args` in the same folder apply to one launch and are deleted before the game
@@ -75,6 +81,9 @@ New settings, which work on Windows too. Without them everything behaves as befo
 | `DEVILUTIONX_VR_SNAP_TURN` | Degrees of a snap turn (45) | 30 |
 | `DEVILUTIONX_VR_EYE_SIZE` | Eye image width in pixels (0: what the runtime recommends) | 0 |
 | `DEVILUTIONX_VR_FOVEATION` | `lo`, `med` or `hi`: the Frame's own eye-tracked foveation (launcher only) | off |
+| `DEVILUTIONX_VR_WRIST_HUD=1` | The HUD strip split in two and put on the wrists, instead of low in front | 1 |
+| `DEVILUTIONX_VR_WRIST_WIDTH` | Width of each wrist half in meters (0.17) | 0.17 |
+| `DEVILUTIONX_VR_LASER_LAYER=0` | The laser drawn in the world as before, not as layers over everything | on |
 
 Levels with no materials, floor map or grit, which is the default look, are now always drawn with
 a variant of the surface shader that leaves those lookups out. It gives the same picture, so it
@@ -94,29 +103,36 @@ a virtual gamepad, so the Frame bindings are the Touch ones with these differenc
 
 | Input | What it does |
 | --- | --- |
-| A, B, X, Y (all on the right hand) | The same as those letters on Touch |
-| Menu (right) | Game menu |
-| View (left) | The gamepad's Select. Held for a second: re-centre, with a buzz in both hands |
+| A, B, X, Y (all on the right hand) | The same as those letters on Touch in play. In the main menus, the game menu, shops and dialogs A confirms and B goes back, which are the gamepad's A and B there |
+| Menu (right) | Game menu, where Save Game is |
+| View (left), short press | In play: the help screen, or closes what's open. In the main menus: the gamepad's Select (back). It goes to the game when it's let go |
+| View, held for a second | Re-centre, with a buzz in both hands |
 | Bumpers | Health and mana potions, as on a gamepad. On the Frame the right stick no longer drinks potions, so turning can't cost one |
 | D-pad | The gamepad's D-pad wherever the game shows its own interface (menus, inventory, shops). Nothing out in the world |
+
+On Touch, A in the main menus reaches the game as the gamepad's B, so it goes back, and Y
+confirms. I left that alone, since I can't try Touch, but the same switch would work there.
+
+A switch between menu and play buttons waits until A and B are both up, so the A that opens a
+shop doesn't also buy the first thing in it.
+
+With the Frame's controllers the help screen starts with their controls and where saving is.
+It comes up by itself the first time a game is started in the headset, and a file
+`vr-help-shown` in the config folder remembers that it did.
 
 The bindings are only suggested when the runtime has `XR_VALVE_frame_controller_interaction`.
 `tools/steam_frame/tests/check_bindings.py` checks every suggested path against its profile.
 
 ## Other changes that apply everywhere
 
-- When the headset session loses focus after having had it (headset off,
-  system menu open), the game pauses with its own window-focus pause, sound included, and resumes
-  when focus is back. It follows the existing "Pause Game When Window Loses Focus" option. While a
-  session runs, the desktop window's focus events are ignored, since they say nothing about the
-  person in the headset.
-- Walking, turning and the scene's clock (particles, monsters gliding between
-  tiles) now step by the OpenXR display time. They used `SDL_GetTicks`, whose whole milliseconds
-  make every step at 72 Hz either 13 or 14 ms long.
+- The laser is two quad layers submitted after every other layer: a beam from the hand to what
+  it hits, turned about its length to face the eyes, and a dot where it lands on the screen or a
+  panel. Drawn in the world, it was under the screen and the panels, which are quad layers the
+  compositor puts over the eyes' picture, so it vanished over every menu. It now shows over the
+  menus too, and over the world it ends at what the hand aims at, as before. The beam turns gold,
+  with a tick in the hand, on anything the trigger picks up, opens or talks to.
 - Doors swing open again. The swing stepped by the time since the last update, read after that
   time had been reset, so it never moved, and a door opened in front of you stayed shut.
-  `DEVILUTIONX_VR_DEBUG_OBJECT=chest`, `sarc` or `door` has the headset-free renderer look at a
-  level's first one and open it 200 frames in.
 - The walls on either side of a built doorway no longer wear their own pictures, which have the
   other halves of the painted arch on them and showed as dark half-arches beside the real one.
   They get the plainest of the level's common wall faces. The cathedral has none without an arch,
@@ -140,13 +156,38 @@ The bindings are only suggested when the runtime has `XR_VALVE_frame_controller_
   previous face's edge clearly better (by brightness down the shared edge), so arches carry on
   across the seams. Hell's rib cages alternate, every other face flipped, in mirrored pairs
   (`DEVILUTIONX_VR_FLIP_SEAMS=0` turns both off).
+- In a game, the panel that comes up for dialogs, shops, the game menu and the character and
+  quest panels is see-through wherever it is pure black: the 2D renderer leaves the world black
+  behind them, and the dimmed backing of dialogs comes out black too. Only the interface floats
+  over the world, the way the desktop mirror has always shown it
+  (`DEVILUTIONX_VR_SEE_THROUGH_PANELS=0` goes back to the solid panel).
+- The automap held in the left hand is placed so that where the player is on it sits just over
+  the hand, with a big gold arrow there (a quad layer over the map) pointing where the head
+  looks. Before, the map was half a metre wide above the hand with the game's small arrow in its
+  middle.
+- The left hand points as well, where the right hand isn't on a screen or panel, and its trigger
+  clicks there. That's how the right wrist's buttons are pressed. On a panel in the world, the
+  right grip is the right mouse button, as it already was on the 2D screen.
+- When the headset session loses focus after having had it (headset off,
+  system menu open), the game pauses with its own window-focus pause, sound included, and resumes
+  when focus is back. It follows the existing "Pause Game When Window Loses Focus" option. While a
+  session runs, the desktop window's focus events are ignored, since they say nothing about the
+  person in the headset.
+- Walking, turning and the scene's clock (particles, monsters gliding between
+  tiles) now step by the OpenXR display time. They used `SDL_GetTicks`, whose whole milliseconds
+  make every step at 72 Hz either 13 or 14 ms long.
 - For testing without anyone in the headset, `DEVILUTIONX_VR_FORCE_RENDER=1` draws
   the world from a made-up head (`DEVILUTIONX_VR_DIAG_YAW` turns it). `DEVILUTIONX_VR_AUTOSTART`
   also types a hero name, so it gets into a game from a fresh install, and
   `DEVILUTIONX_VR_DEBUG_LEVEL` works in a real session too. `DEVILUTIONX_VR_DUMP` saves both eyes.
   With `--verbose` there's a `VR: pacing` line every ten seconds with missed refreshes.
   `DEVILUTIONX_VR_DEBUG_PACING` and `DEVILUTIONX_VR_DEBUG_FOCUS` are for chasing frame misses and
-  testing the pause.
+  testing the pause. `DEVILUTIONX_VR_DEBUG_HANDS` holds stand-in hands out in front while the
+  controllers aren't tracked, and logs the layers each frame submits as they change, so the laser
+  and the wrists can be checked against the runtime with nobody there.
+  `DEVILUTIONX_VR_DEBUG_AUTOMAP=<n>` opens the automap n frames into a game. For the
+  headset-free renderer, `DEVILUTIONX_VR_DEBUG_OBJECT=chest`, `sarc` or `door` looks at the
+  level's first one and opens it 200 frames in.
 
 ## Patches to third-party code
 
@@ -164,18 +205,28 @@ Both live in `tools/steam_frame`. Neither changes anything for other users of th
 
 | File | Change |
 | --- | --- |
-| `CMakeLists.txt` | `DEVILUTIONX_VR` can be turned on on Linux too |
+| `CMakeLists.txt` | `DEVILUTIONX_VR` can be turned on on Linux too, and is defined for every target, since `options.h` now has VR members |
+| `Source/options.h`, `Source/options.cpp` | The `VR` options category |
+| `Source/gamemenu.cpp`, `Source/gamemenu.h` | VR Settings under Options; Load Autosave |
+| `Source/pfile.cpp`, `Source/pfile.h`, `Source/interfac.cpp`, `Source/diablo.cpp`, `Source/diablo.h`, `Source/menu.cpp`, `Source/control/control_panel.cpp`, `Source/DiabloUI/diabloui.h`, `Source/DiabloUI/hero/selhero.cpp` | The autosave slot |
+| `CMake/Tests.cmake`, `test/vr_input_rules_test.cpp`, `test/timedemo_test.cpp` | Tests for the VR input rules and the autosave |
 | `Source/CMakeLists.txt` | The VR sources and libraries per platform: d3d11/dxgi/d3dcompiler on Windows, dxvk-native and vkd3d on Linux, plus the binding file for each |
 | `Source/init.cpp` | Window focus events don't pause the game while a headset session runs |
 | `Source/engine/dx.cpp` | The desktop window can skip frames during a headset session |
+| `Source/help.cpp` | During a headset session the help screen starts with the VR controls |
 
-All of it is inside `DEVILUTIONX_VR`.
+The VR parts are inside `DEVILUTIONX_VR`. The autosave is not: it's game code behind a flag,
+`AutosaveEnabled`, which only the VR mode sets. With it off, nothing is queued and the menus are as
+before, except that an autosave file is offered if one exists, and deleted along with its hero or
+on New Game. Its test replays the recorded demo with autosaves on and checks that the manual save
+still comes out byte for byte the same.
 
-The game without VR is unchanged. I built the flat game (`DEVILUTIONX_VR=OFF`, Linux ARM64)
+Before the settings and the autosave, the game without VR was unchanged. I built the flat game (`DEVILUTIONX_VR=OFF`, Linux ARM64)
 from upstream `main` and from this branch in the same folder with the same version string. Only
 `init.cpp` and `dx.cpp` recompiled. With VR off, `init.cpp` preprocesses to exactly upstream's.
 `dx.cpp` differs only in the line numbers that `ErrSdl()` writes into its error messages, because
-of the two lines added inside `#ifdef DEVILUTIONX_VR`.
+of the two lines added inside `#ifdef DEVILUTIONX_VR`. `help.cpp`, changed later, also preprocesses
+to exactly upstream's with VR off.
 
 I haven't built the Windows side. Its binding file, `xr_d3d11_win32.cpp`, passes the
 D3D11 calls straight through to OpenXR, and it type-checks against dxvk's D3D11 headers. The
@@ -231,16 +282,23 @@ Checked:
 - The Steam launch: started from Steam, the game runs in Steam Linux Runtime 4 at the title's
   refresh rate and quits cleanly on SIGTERM.
 - The flat game: it boots to the main menu in the build image (`build.sh smoke`).
-- Playing it: after the performance work it was played in the headset and ran fine, including the
-  focus pause. What that play turned up (the laser over menus, the HUD, buttons in menus, walls)
-  is in the follow-up PRs.
 
+- Playing it: after the performance work it was played in the headset and ran fine. That play
+  turned up the laser missing over the menus, the HUD wanted on the hands, A and B meaning
+  different things in different menus, and picking up and saving being hard to find out.
 - Doors, chests and sarcophagi opening, drawn on lavapipe with `DEBUG_OBJECT` on level 2: the
   door swings open, the chest's lid comes up, and the sarcophagus runs through its frames to the
   open one, though its lid only moves a little, as in the art.
-- Hell's walls on level 14, before and after, drawn on lavapipe.
+- The fixes for those, unattended: with stand-in hands the Frame's runtime takes the menu with the
+  beam and the dot (3 layers) and the world with both wrists and the beam (4 layers), at 90 Hz.
+- The settings build on the Frame: it starts, runs at 90 Hz and writes its `VR` section to
+  `diablo.ini`. An autosave there takes about 10 ms, once, right after arriving on a level.
+- `vr_input_rules_test` (8 tests) and the autosave replay test pass.
+
 Not checked yet:
 
+- In the headset: VR Settings, the haptics, the belt grab, the item cards, spell gestures, the
+  left-handed setting and loading an autosave.
 - Foveation in the headset.
 - Fights. No frame rate has been measured in one.
 - The Windows build (see above).

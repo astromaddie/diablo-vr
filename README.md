@@ -41,6 +41,7 @@ levels, monsters, items, quests, combat rules and save files.
   - [Option C: Steam Frame (standalone)](#option-c-steam-frame-standalone)
   - [Game data](#game-data)
 - [Controls](#controls)
+  - [Saving](#saving)
 - [Settings](#settings)
 - [How it works](#how-it-works)
 - [Repository layout](#repository-layout)
@@ -92,22 +93,31 @@ The VR mode is an optional build flag (`DEVILUTIONX_VR`) and a launch option (`-
 - Free, smooth movement with the left stick (single player), snap or smooth turning
 - **Melee by swinging** the right controller: the swing's direction picks the neighbouring monster
 - **Bows drawn with two hands**: grab the string, pull back, let go
-- **Spells cast from the left hand** at whatever it points to
+- **Spells cast from the left hand** at whatever it points to, or with a flick of it if you turn on
+  spell gestures
 - A **speedbook ring** around the left hand for choosing the readied spell
 - Reach out and grab to open doors and chests, pull levers, touch shrines and pick up items
+- **Potions on your belt**: grab one and bring it to your mouth to drink it
 - Your equipped weapon and shield are in your hands
 - Life and mana on your wrists, the belt at your waist
+- Left-handed play: everything the right hand does can move to the left
 - A crosshair that turns red when an attack will reach, a swing arc, hit marks, and floating names
   for nearby loot and the monster you aim at
-- Controller haptics on swings and hits
+- Haptics for swings, hits, blows you take, potions, picking things up, doors and chests, and the
+  interface
 - Positional sound: the head is the listener, sounds pan by direction and are muffled behind walls
 
 **Interface**
 
 - Menus, cutscenes and the title screen on a large floating screen
 - Inventory, character sheet, spellbook, quest log, stores and dialogs on a panel in front of you,
-  operated with a laser pointer
+  operated with a laser pointer that's drawn over everything. Only the interface shows, over the
+  world, the way the desktop mirror shows it
+- Point at an item, object or monster and its description shows on a card next to it
+- The automap in your left hand, with a big arrow where you are
 - Automap, potions and panels on controller buttons
+- A VR Settings page in the game menu, so you can change things without taking the headset off
+- An autosave slot after every level change, kept apart from your own save
 - Standing or seated play
 
 **Technical**
@@ -232,11 +242,12 @@ The layout below uses Touch-style controller names.
 | **Right stick left / right** | Turn (45 degree snap by default, smooth turning optional) |
 | **Right stick up / down** | Drink a health potion / a mana potion from the belt |
 | **Swing the right hand** | Melee attack on the neighbouring monster the swing goes towards |
-| **Right trigger** | Click on what the right hand points at: attack, talk, walk there, pick up |
+| **Right trigger** | Click on what the right hand points at: attack, talk, walk there, pick up. The beam turns gold on anything it picks up, opens or talks to |
 | **Bow equipped: bring the right hand to the left, hold the trigger, pull back, release** | Shoot along the arrow |
 | **Right grip** | Take hold of what is within reach: door, chest, lever, shrine, item |
-| **Left trigger** | Cast the readied spell at what the left hand points at |
+| **Left trigger** | Cast the readied spell at what the left hand points at. With spell gestures on, hold it to aim and flick the hand to cast |
 | **Left grip (hold)** | Speedbook ring around the left hand; choose with the left stick, release to set |
+| **Either grip, by a potion on your belt** | Take the potion; bring it to your mouth to drink it, let go anywhere else to put it back |
 | **Y** | Inventory |
 | **X** | Character sheet |
 | **A** | Primary action (attack / interact) |
@@ -250,7 +261,8 @@ The layout below uses Touch-style controller names.
 
 | Input | Action |
 |---|---|
-| **Right hand** | Laser pointer: it is the mouse |
+| **Right hand** | Laser pointer: it is the mouse. The beam is drawn over everything, with a dot where it lands |
+| **Left hand** | Points too, where the right hand isn't on a screen or panel; its trigger clicks there |
 | **Right trigger** | Left click |
 | **Right grip** | Right click |
 | **Left stick** | Menu navigation, as on a gamepad |
@@ -258,7 +270,8 @@ The layout below uses Touch-style controller names.
 | **Menu button** | Back / Escape |
 
 Everything not listed goes through DevilutionX's standard gamepad scheme, so its gamepad
-documentation applies.
+documentation applies. With the dominant hand set to left, read left for right above for the
+hand that points, swings and grabs, and right for left for the one that casts.
 
 ### On the Steam Frame
 
@@ -269,19 +282,52 @@ above (they're all on the right controller). On top of that:
 |---|---|
 | **Bumpers** | Health and mana potion from the belt. The right stick no longer drinks potions on the Frame, so turning can't cost one |
 | **D-pad** | The gamepad's D-pad in menus, the inventory and shops |
-| **View** | The gamepad's Select. Hold it for a second to recentre |
-| **Menu** (right controller) | Game menu (Escape) |
+| **A / B in menus** | Confirm / back, in the main menus, the game menu, shops and dialogs. In play they're still the primary and secondary action |
+| **View** | In play: the help screen, which starts with these controls, or closes whatever is open. In the main menus: back. Hold it for a second to recentre |
+| **Menu** (right controller) | Game menu (Escape), where Save Game is |
+
+The help screen also comes up by itself the first time you start a game in the headset.
+
+On the Frame the HUD strip goes on your wrists (the HUD setting): life, the menu
+buttons and belt slots 1 to 4 on the left wrist, mana, belt slots 5 to 8 and the spell buttons
+on the right. Point at one wrist with the other hand and pull the trigger to press what's on it.
+
+The automap (left stick click) is held in the left hand, with where you are on it just over the
+hand and a big gold arrow there pointing where you look.
+
+### Saving
+
+Diablo only saves when you do: Menu, Save Game. On top of that there's an autosave slot, written
+each time you change level (stairs, portals, back to town). It's a separate file next to your save
+(`single_0_auto.sv` and so on) and never replaces it. Load it from the game menu (Load Autosave),
+from the death screen, or when you pick your hero on the title screen. It's on by default; turn it
+off under VR Settings.
 
 ## Settings
 
-The VR mode is tuned with environment variables read at startup. Set them before launching, for
-example in a copy of `play-vr.bat`:
+The everyday settings are in the game: Menu, Options, VR Settings, in the headset. They're in
+three short pages:
+
+| Page | Settings |
+|---|---|
+| Comfort | Turning (snap or smooth), snap angle, turn speed, vignette, seated |
+| Interface | Dominant hand, haptics strength, HUD on the wrists or as a strip, see-through panels, autosave |
+| Hands | Item cards, belt grab, spell gestures |
+
+Choosing a line steps its value and it's saved right away in `diablo.ini`. The same settings are
+under VR on the title screen's Settings too.
+
+Everything else is an environment variable read at startup. Set them before launching, for example
+in a copy of `play-vr.bat`:
 
 ```bat
-set DEVILUTIONX_VR_SMOOTH_TURN=1
-set DEVILUTIONX_VR_SEATED=1
+set DEVILUTIONX_VR_EYE_HEIGHT=1.75
 start "" devilutionx.exe --vr
 ```
+
+The variables for the settings above (`DEVILUTIONX_VR_SMOOTH_TURN`, `_SNAP_TURN`, `_SEATED`, and so
+on) still work, but only as the starting values: once `diablo.ini` has a VR section, the game
+uses that.
 
 ### Comfort and movement
 
@@ -322,6 +368,9 @@ start "" devilutionx.exe --vr
 | `DEVILUTIONX_VR_SCREEN_WIDTH` | `2.6` | Width of the menu screen, meters |
 | `DEVILUTIONX_VR_PANEL_DISTANCE` | `1.1` | Distance of the in-game panel, meters |
 | `DEVILUTIONX_VR_PANEL_WIDTH` | `1.4` | Width of the in-game panel, meters |
+| `DEVILUTIONX_VR_WRIST_HUD` | `0` | `1`: the HUD strip splits in two and goes on the wrists (the Steam Frame's default) |
+| `DEVILUTIONX_VR_WRIST_WIDTH` | `0.17` | Width of each wrist half, meters |
+| `DEVILUTIONX_VR_LASER_LAYER` | `1` | `0`: the laser is drawn in the world again, under the screen and panels, and not over the menus |
 
 ### Files
 
@@ -413,6 +462,10 @@ Source/platform/vr/
   xr_session.cpp          OpenXR instance, runtime selection, session, swapchains
   xr_frame.cpp            Frame loop and layer composition
   xr_input.cpp            Controllers: movement, swings, bow, spells, grabbing, panels, haptics
+  xr_laser.cpp            The laser as layers over everything else
+  xr_haptics.cpp          What the hands feel, from what the game does
+  vr_menu.cpp             VR Settings in the game menu
+  input_rules.hpp         The input's decisions, kept testable (test/vr_input_rules_test.cpp)
   render/
     scene.h               Plain scene description handed from the game side to the renderer
     renderer.cpp/.h       Direct3D 11 renderer: stereo, lighting, fog, MSAA, tone mapping
@@ -522,7 +575,8 @@ This is a prototype. Honest list:
 
 - **Windows, plus the Steam Frame.** The Frame build is Linux ARM64 through dxvk-native. Other
   Linux setups and a standalone Quest build aren't there. The Frame build has been played in the
-  headset after its performance work and runs fine; the follow-up PRs fix what that play turned up.
+  headset, but the newest additions (VR Settings, haptics, belt grab, item cards, spell gestures,
+  the autosave) were checked without anyone wearing it and still need trying properly.
 - **Tested on one setup** (Quest 2 through SteamVR). Other headsets should work through OpenXR but
   have not been tried. Only Touch-style and Steam Frame controller bindings exist; Index, Vive wand and WMR
   controllers depend on the runtime remapping them.
@@ -536,7 +590,8 @@ This is a prototype. Honest list:
   and many hell pillars are a plain extruded outline.
 - **Not everything has been checked in the headset.** Individual objects, dropped items and door
   leaves were verified on captured images more than in VR.
-- **No in-game VR options menu.** Settings are environment variables for now.
+- **The VR Settings page is short.** Turning, comfort, hands and the interface are there; the
+  rest (picture, performance, screen sizes) are still environment variables.
 - Runtime selection overrides a security check in the OpenXR loader so the game still finds the
   headset when started as administrator. Run it as a normal user unless you have a reason not to.
 
@@ -544,7 +599,7 @@ This is a prototype. Honest list:
 
 Rough order, no promises:
 
-- An in-game VR options page instead of environment variables
+- Monsters that catch the light from the side it comes from, with contact shadows
 - Bindings for Index, Vive and WMR controllers
 - Models for the remaining objects and a second pass on the weak ones
 - Hellfire's crypt and hive
