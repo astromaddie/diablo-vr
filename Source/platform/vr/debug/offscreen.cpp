@@ -13,6 +13,7 @@
 #include "diablo.h"
 #include "interfac.h"
 #include "levels/dun_tile_data.hpp"
+#include "objects.h"
 #include "platform/vr/debug/profile.h"
 #include "platform/vr/render/gpu.h"
 #include "platform/vr/render/world.h"
@@ -138,6 +139,50 @@ void UpdateScene(float yaw, float pitch, float position[3], float orientation[4]
 		if (!logged)
 			LogInfo("VR: debug camera at monster {} ({}, {}): {}", debugMonster, monster.position.tile.x, monster.position.tile.y, found ? "placed" : "no open spot");
 		logged = true;
+	}
+	// DEVILUTIONX_VR_DEBUG_OBJECT=chest, sarc or door: look at the level's first one from about two
+	// tiles away, and open it 200 frames in the way the game does, to see it open.
+	static const char *const objectKind = SDL_getenv("DEVILUTIONX_VR_DEBUG_OBJECT");
+	if (objectKind != nullptr) {
+		static Object *watched;
+		static float spot[2];
+		static int frames;
+		if (watched == nullptr && leveltype != DTYPE_TOWN) {
+			const std::string kind = objectKind;
+			for (int i = 0; i < ActiveObjectCount && watched == nullptr; i++) {
+				Object &object = Objects[ActiveObjects[i]];
+				const bool wanted = (kind == "chest" && object.IsChest()) || (kind == "sarc" && object._otype == OBJ_SARC) || (kind == "door" && object.isDoor());
+				for (int j = 0; j < 16 && wanted && watched == nullptr; j++) {
+					const float angle = static_cast<float>(j) * 0.3927F;
+					const float x = (static_cast<float>(object.position.x) + 0.5F + 2.2F * std::cos(angle)) * VrWorldTileSize();
+					const float z = (static_cast<float>(object.position.y) + 0.5F + 2.2F * std::sin(angle)) * VrWorldTileSize();
+					if (VrWorldCanStand(x, z)) {
+						watched = &object;
+						spot[0] = x;
+						spot[1] = z;
+						LogInfo("VR: debug camera at {} ({}, {}), frame {}", kind, object.position.x, object.position.y, object._oAnimFrame);
+					}
+				}
+			}
+		}
+		if (watched != nullptr) {
+			worldOrigin[0] = spot[0];
+			worldOrigin[2] = spot[1];
+			const float dx = (static_cast<float>(watched->position.x) + 0.5F) * VrWorldTileSize() - spot[0];
+			const float dz = (static_cast<float>(watched->position.y) + 0.5F) * VrWorldTileSize() - spot[1];
+			yaw = std::atan2(-dx, -dz);
+			if (++frames == 200) {
+				if (watched->IsChest()) {
+					watched->_oAnimFrame += 2;
+				} else if (watched->_otype == OBJ_SARC) {
+					watched->_oAnimFlag = true;
+					watched->_oAnimDelay = 3;
+				} else {
+					watched->_oVar4 = 1; // DOOR_OPEN (objects.cpp)
+				}
+				LogInfo("VR: debug object opened");
+			}
+		}
 	}
 	turnYaw = yaw;
 	const XrPosef local { { std::sin(pitch / 2), 0, 0, std::cos(pitch / 2) }, { 0, 1.65F, 0 } };
