@@ -147,8 +147,9 @@ The bindings are only suggested when the runtime has `XR_VALVE_frame_controller_
 - Many wall faces in the cathedral and hell are half a pattern: half an arch, half a rib cage.
   Where the art pairs two pieces, neighbours make the whole; where one half repeats, they didn't.
   Along each run of faces, a face is now flipped left to right when that makes its edge meet the
-  previous face's edge clearly better (by brightness down the shared edge), so arches and ribs
-  carry on across the seams (`DEVILUTIONX_VR_FLIP_SEAMS=0` goes back).
+  previous face's edge clearly better (by brightness down the shared edge), so arches carry on
+  across the seams. Hell's rib cages alternate, every other face flipped, in mirrored pairs
+  (`DEVILUTIONX_VR_FLIP_SEAMS=0` turns both off).
 - The automap held in the left hand is placed so that where the player is on it sits just over
   the hand, with a big gold arrow there (a quad layer over the map) pointing where the head
   looks. Before, the map was half a metre wide above the hand with the game's small arrow in its
