@@ -21,6 +21,7 @@
 #include "platform/vr/vr_internal.h"
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
@@ -866,6 +867,102 @@ void ButcherShortcut()
 		LogInfo("VR: F9, no free tile outside the Butcher's door");
 }
 
+/** Belt Grab: the belt slot held in a hand (-1: none) and which hand. */
+int beltSlot = -1;
+Hand beltHand = Right;
+bool beltGrip[2];
+
+bool IsPotion(const Item &item)
+{
+	return IsAnyOf(item._iMiscId, IMISC_FULLHEAL, IMISC_HEAL, IMISC_MANA, IMISC_FULLMANA, IMISC_REJUV, IMISC_FULLREJUV);
+}
+
+/**
+ * Belt Grab: a grip closing by a potion on the belt (worn round the waist, AddBelt) takes it in
+ * that hand; brought to the mouth, it is drunk, as clicking it on the belt would; let go anywhere
+ * else, it goes back. Returns, per hand, whether its grip is busy with the belt, so that it does
+ * not also grab in the world or open the speedbook.
+ */
+std::array<bool, 2> UpdateBeltGrab(XrTime time)
+{
+	std::array<bool, 2> busy {};
+	XrPosef head;
+	const bool usable = *Settings().beltGrab && world3d && !UiOpen() && MyPlayer != nullptr && Locate(viewSpace, time, head);
+	if (!usable) {
+		beltSlot = -1;
+		VrWorldSetBeltHold({ -1, 0 });
+		return busy;
+	}
+	// The belt as AddBelt draws it, in tracking space: round the front of the waist.
+	const XrVector3f look = Rotate(head.orientation, { 0, 0, -1 });
+	const float flat = std::max(std::sqrt(look.x * look.x + look.z * look.z), 1e-3F);
+	const XrVector3f forward { look.x / flat, 0, look.z / flat };
+	const XrVector3f right { -forward.z, 0, forward.x };
+	const XrVector3f waist { head.position.x, head.position.y - 0.68F, head.position.z };
+	// The mouth: a little below and in front of the eyes.
+	const XrVector3f down = Rotate(head.orientation, { 0, -1, 0 });
+	const XrVector3f mouth { head.position.x + look.x * 0.07F + down.x * 0.1F, head.position.y + look.y * 0.07F + down.y * 0.1F, head.position.z + look.z * 0.07F + down.z * 0.1F };
+	const auto distance = [](const XrVector3f &a, const XrVector3f &b) {
+		const float dx = a.x - b.x;
+		const float dy = a.y - b.y;
+		const float dz = a.z - b.z;
+		return std::sqrt(dx * dx + dy * dy + dz * dz);
+	};
+	for (const Hand hand : { Left, Right }) {
+		XrPosef pose;
+		const bool tracked = LocateHand(hand, time, pose);
+		const bool holding = beltSlot >= 0 && beltHand == hand;
+		const bool grip = tracked && FloatState(squeezeAction, hand) > (holding || beltGrip[hand] ? 0.3F : 0.6F);
+		const bool closed = grip && !beltGrip[hand];
+		beltGrip[hand] = grip;
+		if (holding) {
+			busy[hand] = true;
+			const Item &item = MyPlayer->SpdList[beltSlot];
+			if (item.isEmpty()) {
+				beltSlot = -1;
+			} else if (tracked && distance(pose.position, mouth) < 0.14F) {
+				UseInvItem(INVITEM_BELT_FIRST + beltSlot);
+				beltSlot = -1;
+			} else if (!grip) {
+				beltSlot = -1; // Back on the belt.
+				Pulse(hand, 0.15F, 15);
+			}
+			continue;
+		}
+		if (!closed || beltSlot >= 0)
+			continue;
+		int nearest = -1;
+		float best = 0.13F;
+		for (int slot = 0; slot < MaxBeltItems; slot++) {
+			const Item &item = MyPlayer->SpdList[slot];
+			if (item.isEmpty() || !IsPotion(item))
+				continue;
+			const float angle = (static_cast<float>(slot) - 3.5F) * 0.3F;
+			const XrVector3f out { forward.x * std::cos(angle) + right.x * std::sin(angle), 0, forward.z * std::cos(angle) + right.z * std::sin(angle) };
+			const XrVector3f at { waist.x + out.x * 0.27F, waist.y, waist.z + out.z * 0.27F };
+			const float away = distance(pose.position, at);
+			if (away < best) {
+				best = away;
+				nearest = slot;
+			}
+		}
+		if (nearest >= 0) {
+			beltSlot = nearest;
+			beltHand = hand;
+			busy[hand] = true;
+			Pulse(hand, 0.4F, 30);
+		}
+	}
+	VrWorldSetBeltHold({ beltSlot, beltHand == Left ? 0 : 1 });
+	return busy;
+}
+
+/** Spell Gestures: casting waits for a flick of the casting hand while its trigger is held. */
+int castClick;
+Uint32 lastCast;
+Uint32 lastCharge;
+Uint32 aimingSince;
+
 void UpdateInput(XrTime time, float screenHeight)
 {
 	// The step from one frame to the next, from the times the frames are shown at. The game's
@@ -951,7 +1048,8 @@ void UpdateInput(XrTime time, float screenHeight)
 	XrVector3f swingDirection { 0, 0, 0 };
 	worldPointerValid = false;
 	laser = {};
-	const bool leftValid = LocateHand(off, time, leftAim);
+	XrSpaceVelocity offVelocity {};
+	const bool leftValid = LocateHand(off, time, leftAim, &offVelocity);
 	const bool rightValid = LocateHand(main, time, aim, &velocity);
 	float hitDistance = 0;
 	// A bow being drawn keeps both hands for the bow, whatever panel they cross.
@@ -1078,10 +1176,36 @@ void UpdateInput(XrTime time, float screenHeight)
 		// The left hand casts the spell held ready: the right mouse button, aimed by the left hand.
 		// On a panel the right grip is the right button, as on the 2D screen: drink, read, use.
 		castingDown = casting;
+		const std::array<bool, 2> beltBusy = UpdateBeltGrab(time);
 		const bool panelRightClick = pointerOnQuad && !leftPointing && FloatState(squeezeAction, main) > (mouseRightDown ? 0.3F : 0.6F);
-		SetMouseButton(mouseRightDown, (casting && !speedbookOpen) || panelRightClick, SDL_BUTTON_RIGHT);
+		bool castNow = casting && !speedbookOpen;
+		if (*Settings().spellGestures) {
+			// Holding the trigger aims and gathers the spell, with a quickening tick in the hand; a
+			// flick of that hand along where it points lets it go.
+			const Uint32 tick = SDL_GetTicks();
+			if (castNow && aimingSince == 0)
+				aimingSince = tick;
+			if (!castNow)
+				aimingSince = 0;
+			float flick = 0;
+			if (castNow && (offVelocity.velocityFlags & XR_SPACE_VELOCITY_LINEAR_VALID_BIT) != 0)
+				flick = Dot(offVelocity.linearVelocity, Rotate(leftAim.orientation, { 0, 0, -1 }));
+			if (castNow && flick > 1.4F && tick - lastCast > 350) {
+				castClick = 2;
+				lastCast = tick;
+				Pulse(off, 0.6F, 60);
+			} else if (castNow && tick - lastCharge > 150) {
+				const float gathered = std::min(static_cast<float>(tick - aimingSince) / 1000.F, 1.5F);
+				Pulse(off, 0.1F + 0.08F * gathered, 15);
+				lastCharge = tick;
+			}
+			castNow = castClick > 0;
+			if (castClick > 0)
+				castClick--;
+		}
+		SetMouseButton(mouseRightDown, castNow || panelRightClick, SDL_BUTTON_RIGHT);
 		// The right grip takes hold of what is within reach: a click on it, as the mouse would.
-		const bool grab = FloatState(squeezeAction, main) > (grabDown ? 0.3F : 0.6F);
+		const bool grab = !beltBusy[main] && FloatState(squeezeAction, main) > (grabDown ? 0.3F : 0.6F);
 		if (grab && !grabDown && !pointerOnQuad) {
 			float hand[3];
 			float handOrientation[4];
@@ -1107,7 +1231,7 @@ void UpdateInput(XrTime time, float screenHeight)
 		}
 		grabDown = grab;
 		// The speedbook: held open with the left grip, the left stick picks, letting go sets it.
-		const bool book = !leftPointing && FloatState(squeezeAction, off) > (speedbookOpen ? 0.3F : 0.6F);
+		const bool book = !leftPointing && !beltBusy[off] && FloatState(squeezeAction, off) > (speedbookOpen ? 0.3F : 0.6F);
 		if (book && !speedbookOpen) {
 			ring = {};
 			const Player &me = *MyPlayer;
@@ -1309,7 +1433,9 @@ const std::vector<const char *> &VrControlsHelp()
 		"A: attack or talk. B: pick up, open, use what is next to you. Swing the right hand to hit a monster next to you.",
 		"Left trigger: cast the readied spell where the left hand points. Hold the left grip for the speedbook, choose with the left stick.",
 		"Y: inventory. X: character. Bumpers: health and mana potion. Left stick click: automap.",
+		"Close a grip by a potion on your belt to take it, and bring it to your mouth to drink it.",
 		"View: this help, or close what is open. Hold View: recentre. Menu: game menu.",
+		"Turning, hand, haptics and the rest: Menu, Options, VR Settings.",
 		"",
 		"$Menus:",
 		"Point and pull the trigger, or use the D-pad. A confirms, B goes back.",
@@ -1335,6 +1461,8 @@ const std::vector<const char *> &VrControlsHelp()
 		"A: attack or talk. B: pick up, open, use what is next to you. Swing the right hand to hit a monster next to you.",
 		"Left trigger: cast the readied spell where the left hand points. Hold the left grip for the speedbook.",
 		"Y: inventory. X: character. Left stick click: automap. Menu: game menu.",
+		"Close a grip by a potion on your belt to take it, and bring it to your mouth to drink it.",
+		"Turning, hand, haptics and the rest: Menu, Options, VR Settings.",
 		"",
 		"$Saving:",
 		"Press Menu and choose Save Game. Diablo only saves when you do, so save before you quit.",

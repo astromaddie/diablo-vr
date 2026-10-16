@@ -203,6 +203,11 @@ void VrWorldSetSpellRing(const VrSpellRing &ring)
 	spellRing = ring;
 }
 
+void VrWorldSetBeltHold(const VrBeltHold &hold)
+{
+	beltHold = hold;
+}
+
 void VrWorldSetHeldPanel(const VrHeldPanel &panel)
 {
 	heldPanel = panel;

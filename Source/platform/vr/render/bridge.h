@@ -168,6 +168,8 @@ bool CarvedAddRecord(Scene &scene, const std::string &key, int id, const Mat34 &
 extern VrSpellRing spellRing;
 /** Set by vr.cpp each frame (world.cpp). */
 extern VrHeldPanel heldPanel;
+/** Set by the input layer each frame (world.cpp). */
+extern VrBeltHold beltHold;
 /** What rays are tested against when aiming: the upright sprites and figures of the last scene. */
 struct Pickable {
 	Vec3 base;
