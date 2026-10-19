@@ -48,7 +48,7 @@ std::unordered_map<std::string, Label> labels;
 int labelsLevel = -1;
 int labelsType = -1;
 
-int lastHitPoints[MaxMonsters];
+decltype(Monster::hitPoints) lastHitPoints[MaxMonsters];
 bool hitPointsKnown[MaxMonsters];
 struct HitMark {
 	Vec3 at;

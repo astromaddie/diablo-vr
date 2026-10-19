@@ -1010,8 +1010,8 @@ void ActorsAddToScene(Scene &scene, const VrHandPose &leftHand, const VrHandPose
 		// Life on the left wrist, mana on the right, as the game's orbs are on the left and right.
 		// The wrist display (the HUD setting) puts the game's own orbs there instead.
 		if (*GetOptions().Vr.hud != VrHudPlace::Wrists) {
-			AddVial(scene, leftHand, me._pMaxHP > 0 ? static_cast<float>(me._pHitPoints) / static_cast<float>(me._pMaxHP) : 0, { 0.42F, 0.02F, 0.02F });
-			AddVial(scene, rightHand, me._pMaxMana > 0 ? static_cast<float>(me._pMana) / static_cast<float>(me._pMaxMana) : 0, { 0.03F, 0.05F, 0.45F });
+			AddVial(scene, leftHand, me._pMaxHP > 0 ? static_cast<float>(me._pHitPoints.raw()) / static_cast<float>(me._pMaxHP.raw()) : 0, { 0.42F, 0.02F, 0.02F });
+			AddVial(scene, rightHand, me._pMaxMana > 0 ? static_cast<float>(me._pMana.raw()) / static_cast<float>(me._pMaxMana.raw()) : 0, { 0.03F, 0.05F, 0.45F });
 		}
 		AddBelt(scene);
 		AddBeltHold(scene, beltHold.hand == 0 ? leftHand : rightHand);
