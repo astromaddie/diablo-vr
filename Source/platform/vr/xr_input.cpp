@@ -129,7 +129,7 @@ float aimDirZ = -1;
 Uint32 lastAttackAt;
 /** A melee attack whose outcome the hand should feel: the monster and its life when the swing went out. */
 int swingTarget = -1;
-int swingTargetLife;
+decltype(Monster::hitPoints) swingTargetLife {};
 Uint32 swingAt;
 /** The bow: drawing since the right trigger closed by the left hand. */
 bool drawingBow;

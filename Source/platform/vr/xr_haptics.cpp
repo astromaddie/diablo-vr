@@ -110,8 +110,10 @@ void UpdateHaptics(Hand main, Hand off, bool onPanel, Hand pointingHand, bool mo
 	now.known = true;
 	now.level = currlevel;
 	now.levelType = leveltype;
-	now.life = me._pHitPoints;
-	now.mana = me._pMana;
+	// Health and mana are fixed point: the snapshots keep their raw values, so comparisons and
+	// shares stay in one unit.
+	now.life = me._pHitPoints.raw();
+	now.mana = me._pMana.raw();
 	now.characterLevel = me.getCharacterLevel();
 	now.gold = me._pGold;
 	now.items = CountItems(me);
@@ -128,8 +130,8 @@ void UpdateHaptics(Hand main, Hand off, bool onPanel, Hand pointingHand, bool mo
 		objectBuzzed.clear();
 	}
 	if (settled) {
-		const int maxLife = std::max(me._pMaxHP, 1);
-		const int maxMana = std::max(me._pMaxMana, 1);
+		const int maxLife = std::max(me._pMaxHP.raw(), 1);
+		const int maxMana = std::max(me._pMaxMana.raw(), 1);
 		if (now.life < before.life) {
 			// A blow: both hands, harder the more it took.
 			const float strength = rules::BlowStrength(before.life - now.life, maxLife);
